@@ -1,0 +1,2540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Hint Badge Scanner</title>
+
+<!-- PWA: allow reps to install to home screen -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#1d63f2" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Badge Scanner" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root {
+    /* Hint brand palette */
+    --bg: #0d1216;
+    --panel: #161c22;
+    --panel-2: #1d242c;
+    --border: #2a333d;
+    --text: #e8eef2;
+    --muted: #8896a4;
+    --hint-slate: #525866;      /* Hint slate */
+    --accent: #1d63f2;          /* Hint primary blue */
+    --accent-2: #08a6fc;        /* Hint secondary cyan */
+    --accent-dark: #1750c4;
+    --ok: #2ec27e;
+    --warn: #f5a623;
+    --err: #ff5d5d;
+    --hot: #ef5a6f;
+    --warm: #f5a623;
+    --cold: #08a6fc;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { padding-bottom: 120px; }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: linear-gradient(180deg, #11141a 0%, #0f1115 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  header .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  header .left { display: flex; align-items: center; gap: 12px; }
+  header .brand { display: flex; align-items: center; }
+  header .brand svg { display: block; height: 28px; width: auto; }
+  /* Lighten the slate portion of the wordmark for dark background readability */
+  header .brand .hint-text { fill: url(#hint-grad-text); }
+  header .divider { width: 1px; height: 22px; background: var(--border); }
+  header .titles { display: flex; flex-direction: column; }
+  .icon-btn {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    font-size: 18px; cursor: pointer;
+  }
+  .icon-btn:hover { background: #262c37; }
+
+  main { padding: 16px; max-width: 720px; margin: 0 auto; }
+  section { margin-bottom: 18px; }
+  .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; background: var(--panel); padding: 6px; border-radius: var(--radius); border: 1px solid var(--border); }
+  .tab { text-align: center; padding: 10px 4px; font-size: 12px; font-weight: 600; color: var(--muted); border-radius: 8px; cursor: pointer; user-select: none; }
+  .tab.active { background: var(--accent); color: #fff; }
+  .tab .ico { display: block; font-size: 18px; margin-bottom: 2px; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+  .panel h2 { margin: 0 0 10px 0; font-size: 14px; font-weight: 600; }
+  .muted { color: var(--muted); font-size: 12px; }
+
+  .qr-box { position: relative; width: 100%; aspect-ratio: 1 / 1; max-height: 380px; background: #000; border-radius: 10px; overflow: hidden; }
+  #qr-reader { width: 100%; height: 100%; }
+  #qr-reader video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
+
+  button.primary, button.secondary, button.ghost, button.danger {
+    border: 0; border-radius: 10px; padding: 12px 16px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%;
+  }
+  button.primary { background: var(--accent); color: #fff; }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  button.ghost { background: transparent; color: var(--muted); }
+  button.danger { background: transparent; color: var(--err); border: 1px solid rgba(255,93,93,0.3); }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+
+  label { display: block; font-size: 11px; color: var(--muted); margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  input[type=text], input[type=email], input[type=tel], input[type=url], input[type=password], input[type=number], textarea, select {
+    width: 100%; background: #11141a; border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    padding: 10px 12px; font-size: 14px; font-family: inherit;
+  }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+  textarea { min-height: 70px; resize: vertical; }
+
+  .queue { display: flex; flex-direction: column; gap: 8px; }
+  .queue-item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .queue-item .name { font-weight: 600; font-size: 14px; }
+  .queue-item .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .queue-item .actions button { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; padding: 4px 8px; }
+  .queue-item .actions button:hover { color: var(--text); }
+
+  .badge { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 999px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); margin-right: 4px; }
+  .badge.ok { color: var(--ok); border-color: rgba(46,194,126,0.4); }
+  .badge.warn { color: var(--warn); border-color: rgba(245,166,35,0.4); }
+  .badge.err { color: var(--err); border-color: rgba(255,93,93,0.4); }
+
+  .sticky-bottom {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(0deg, #0f1115 60%, rgba(15,17,21,0.0) 100%);
+    padding: 14px 16px 18px; z-index: 9;
+  }
+  .sticky-bottom .inner { max-width: 720px; margin: 0 auto; }
+
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 20; display: none; align-items: flex-end; justify-content: center; }
+  .modal-bg.open { display: flex; }
+  .modal { width: 100%; max-width: 720px; background: var(--panel); border-top-left-radius: 16px; border-top-right-radius: 16px; padding: 16px 16px 22px; max-height: 90vh; overflow-y: auto; }
+  .modal h2 { margin-top: 0; font-size: 16px; }
+
+  .progress { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  .file-drop { border: 1px dashed var(--border); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); font-size: 13px; }
+  .file-drop input { display: none; }
+  .file-drop label.btn { color: var(--accent); cursor: pointer; }
+
+  .toast { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--border); padding: 10px 14px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity 0.2s; z-index: 30; pointer-events: none; }
+  .toast.show { opacity: 1; }
+
+  details > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 6px 0; }
+  pre { background: #0a0c10; border: 1px solid var(--border); border-radius: 8px; padding: 10px; overflow-x: auto; font-size: 11px; color: var(--text); }
+
+  /* Field editor */
+  .field-row { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+  .field-row .grip { color: var(--muted); cursor: grab; padding: 4px 6px; }
+  .field-row .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .field-row .field-grid label { margin-top: 6px; }
+  .field-row .field-grid input, .field-row .field-grid select { padding: 8px 10px; font-size: 13px; }
+  .field-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .field-row-top input { flex: 1; }
+  .req-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .req-toggle input { width: auto; }
+
+  /* Settings tabs inside modal */
+  .settings-tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .settings-tabs .stab { padding: 8px 12px; cursor: pointer; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .settings-tabs .stab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .settings-pane { display: none; }
+  .settings-pane.active { display: block; }
+
+  /* Stats banner */
+
+  /* Lead-temperature & quick-tag chip selector */
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; user-select: none; transition: transform 0.08s ease, background 0.12s ease; }
+  .chip:active { transform: scale(0.96); }
+  .chip.selected { color: #fff; border-color: transparent; }
+  .chip.selected[data-temp="hot"] { background: var(--hot); }
+  .chip.selected[data-temp="warm"] { background: var(--warm); }
+  .chip.selected[data-temp="cold"] { background: var(--cold); }
+  .chip.selected[data-temp="default"] { background: var(--accent); }
+  .chip[data-temp="hot"] { color: var(--hot); border-color: rgba(239,90,111,0.35); }
+  .chip[data-temp="warm"] { color: var(--warm); border-color: rgba(245,166,35,0.35); }
+  .chip[data-temp="cold"] { color: var(--cold); border-color: rgba(8,166,252,0.35); }
+  .chip.selected { color: #fff !important; }
+
+  /* Sync status badge in header */
+  .sync-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid; }
+  .sync-badge .sync-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .sync-ok { color: var(--ok); border-color: rgba(46, 204, 113, 0.35); background: rgba(46, 204, 113, 0.08); }
+  .sync-ok .sync-dot { background: var(--ok); }
+  .sync-pending { color: var(--warn); border-color: rgba(245, 166, 35, 0.35); background: rgba(245, 166, 35, 0.10); }
+  .sync-pending .sync-dot { background: var(--warn); animation: sync-pulse 1.4s ease-in-out infinite; }
+  @keyframes sync-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* iOS-style toggle switch for boolean fields */
+  .toggle-row { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+  .toggle-switch { position: relative; display: inline-block; width: 52px; height: 30px; flex-shrink: 0; cursor: pointer; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-track { position: absolute; inset: 0; background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; transition: background 0.15s ease, border-color 0.15s ease; }
+  .toggle-knob { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.4); transition: transform 0.18s ease; }
+  .toggle-switch input:checked + .toggle-track { background: var(--accent); border-color: var(--accent); }
+  .toggle-switch input:checked + .toggle-track .toggle-knob { transform: translateX(22px); }
+  .toggle-state { font-size: 13px; font-weight: 600; color: var(--muted); user-select: none; }
+  .toggle-state.on { color: var(--text); }
+
+  /* Pulse on queue count when something is added */
+  @keyframes pulse-glow {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(29,99,242,0.6); }
+    50% { transform: scale(1.18); box-shadow: 0 0 0 10px rgba(29,99,242,0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(29,99,242,0); }
+  }
+  .pulse { animation: pulse-glow 0.55s ease-out; }
+
+  /* Save success overlay */
+  .save-burst { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; pointer-events: none; z-index: 50; }
+  .save-burst.show { display: flex; }
+  .save-burst .check {
+    width: 96px; height: 96px; border-radius: 50%; background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 0 rgba(29,99,242,0.7);
+    animation: burst 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+  .save-burst .check svg { width: 56px; height: 56px; stroke: #fff; stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  @keyframes burst {
+    0%   { transform: scale(0.3); opacity: 0; }
+    40%  { transform: scale(1.1); opacity: 1; box-shadow: 0 0 0 24px rgba(29,99,242,0); }
+    70%  { transform: scale(1); opacity: 1; }
+    100% { transform: scale(1); opacity: 0; }
+  }
+
+  /* Tab active uses gradient */
+  .tab.active { background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%); color: #fff; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="left">
+    <div class="brand" aria-label="Hint Health">
+      <svg viewBox="0 0 514.9 146.6" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+        <defs>
+          <linearGradient id="hint-grad-text" gradientUnits="userSpaceOnUse" x1="203.7" y1="73.3" x2="514.9" y2="73.3">
+            <stop offset="0" stop-color="#4ea4f0"/>
+            <stop offset="0.5" stop-color="#c8cfd9"/>
+          </linearGradient>
+          <linearGradient id="hint-grad-top" gradientUnits="userSpaceOnUse" x1="89.95" y1="144" x2="89.95" y2="12.2">
+            <stop offset="0" stop-color="#0F91F9"/>
+            <stop offset="1" stop-color="#00BFFF"/>
+          </linearGradient>
+          <linearGradient id="hint-grad-bottom" gradientUnits="userSpaceOnUse" x1="0" y1="102" x2="131.9" y2="102">
+            <stop offset="0" stop-color="#1D63F2"/>
+            <stop offset="1" stop-color="#0F91F9"/>
+          </linearGradient>
+        </defs>
+        <path class="hint-text" d="M322.3,12.2c-2.7,0-4.9,0.9-6.7,2.8c-1.8,1.8-2.8,4.1-2.8,6.7s0.9,4.9,2.8,6.7c1.8,1.8,4.1,2.8,6.7,2.8c2.7,0,4.9-0.9,6.7-2.8c1.8-1.8,2.8-4.1,2.8-6.7s-0.9-4.9-2.8-6.7C327.3,13.1,325.1,12.2,322.3,12.2z M316,144h12.7V46.1H316V144z M250.4,43.6c-7.9,0-14.8,2-20.8,5.9c-6,3.9-10.2,8.5-12.7,13.9h-0.5V0h-12.7v144h12.7V95.1c0-6.7,0.9-12.6,2.6-17.7c1.8-5,4.2-9.2,7.2-12.6c3.1-3.3,6.7-5.8,10.8-7.4c4.1-1.6,8.5-2.5,13.1-2.5c14.8,0.3,24.7,11.1,24.7,25.3V144h12.7V79.6C287.7,59.6,271,43.6,250.4,43.6z M403.5,43.6c-7.9,0-14.8,2-20.8,5.9c-6,3.9-10.2,8.5-12.7,13.9h-0.6c-0.3-1-0.5-3.1-0.6-6.6c-0.1-3.4-0.2-7-0.4-10.6h-12.7c0,1.3,0.1,3.1,0.2,5.4c0.2,2.4,0.3,4.9,0.4,7.5c0.1,2.7,0.2,5.3,0.4,7.9c0.2,2.6,0.2,4.9,0.2,6.7V144h12.7V95.1c0-6.7,0.9-12.6,2.6-17.7c1.8-5,4.2-9.2,7.2-12.6c3.1-3.3,6.7-5.8,10.8-7.4c4.1-1.6,8.5-2.5,13.1-2.5c14.8,0.3,24.7,11.1,24.7,25.3V144h12.7V79.6C440.9,59.6,424.2,43.6,403.5,43.6z M514.9,57.6V46.1h-28v-30h-12.7v30H453v11.5h21.2v63.8c0,3.5,0.5,6.8,1.3,9.8c0.9,3.1,2.4,5.7,4.3,7.9c2,2.3,4.6,4.1,7.8,5.4c3.2,1.3,7.1,2,11.6,2c2.4,0,5.1-0.4,8.3-1.1c2.7-0.6,5-1.3,7.2-2v-11.8c-2.3,1-4.6,1.8-7.1,2.4c-2.4,0.6-4.9,1-7.3,1c-4.2,0-7.6-1.2-9.9-3.6c-2.4-2.4-3.6-5.8-3.6-10.2V57.6H514.9z"/>
+        <path fill="url(#hint-grad-top)" d="M48,60.1c0,0,0-5.6,0-6c0-23.2,18.8-42,42-42s42,18.8,42,42V144l-54-35.9L48,60.1z"/>
+        <path fill="url(#hint-grad-bottom)" d="M48,60.1c0,0-5.6,0-6,0c-23.2,0-42,18.8-42,42s18.8,42,42,42h90L48,60.1z"/>
+      </svg>
+    </div>
+    <div class="divider"></div>
+    <div class="titles">
+      <h1>Badge Scanner</h1>
+      <span class="sub" id="header-sub">Tap a scan method to begin</span>
+    </div>
+  </div>
+  <div style="display:flex; align-items:center; gap:8px;">
+    <div id="sync-badge" class="sync-badge sync-ok" title="Sync status">
+      <span class="sync-dot"></span><span id="sync-badge-text">All synced</span>
+    </div>
+    <button class="icon-btn" id="open-settings" title="Settings">⚙</button>
+  </div>
+</header>
+
+<main>
+
+  <section>
+    <div class="tabs" id="tabs">
+      <div class="tab active" data-mode="qr"><span class="ico">▦</span>QR</div>
+      <div class="tab" data-mode="card"><span class="ico">⌖</span>Card</div>
+      <div class="tab" data-mode="vcard"><span class="ico">⎘</span>vCard</div>
+      <div class="tab" data-mode="nfc"><span class="ico">≋</span>NFC</div>
+    </div>
+  </section>
+
+  <!-- QR Panel -->
+  <section id="panel-qr" class="mode-panel">
+    <div class="panel">
+      <h2>Scan a badge QR code</h2>
+      <div class="qr-box"><div id="qr-reader"></div></div>
+      <div class="row" style="margin-top: 10px;">
+        <button class="secondary" id="qr-start">Start camera</button>
+        <button class="ghost" id="qr-stop">Stop</button>
+      </div>
+      <div class="muted" style="margin-top: 8px;">Supports vCard, MeCard, plain URL, or freeform text in the QR payload.</div>
+    </div>
+  </section>
+
+  <!-- Card OCR Panel -->
+  <section id="panel-card" class="mode-panel" style="display: none;">
+    <div class="panel">
+      <h2>Photograph a business card</h2>
+      <div class="file-drop">
+        <input type="file" id="card-file" accept="image/*" capture="environment" />
+        <label for="card-file" class="btn">Tap to take a photo or upload image</label>
+        <div class="muted" style="margin-top: 6px;">OCR runs in your browser — no image is uploaded anywhere.</div>
+      </div>
+      <div class="progress" id="ocr-progress" style="display:none;"></div>
+    </div>
+  </section>
+
+  <!-- vCard Panel -->
+  <section id="panel-vcard" class="mode-panel" style="display: none;">
+    <div class="panel">
+      <h2>Import vCard (.vcf)</h2>
+      <div class="file-drop">
+        <input type="file" id="vcard-file" accept=".vcf,text/vcard,text/x-vcard" />
+        <label for="vcard-file" class="btn">Tap to upload .vcf file</label>
+      </div>
+      <div class="muted" style="margin-top: 8px;">Many badges export contacts to a .vcf file when shared via the conference app.</div>
+    </div>
+  </section>
+
+  <!-- NFC Panel -->
+  <section id="panel-nfc" class="mode-panel" style="display: none;">
+    <div class="panel">
+      <h2>Tap an NFC badge</h2>
+      <p class="muted" style="margin: 0 0 10px;">NFC scanning works on Android Chrome only. On iPhone, use the QR or Card mode.</p>
+      <button class="secondary" id="nfc-start">Start NFC reader</button>
+      <button class="ghost" id="nfc-stop" style="margin-top: 6px;">Stop</button>
+      <div class="muted" id="nfc-status" style="margin-top: 8px;"></div>
+    </div>
+  </section>
+
+  <!-- Queue -->
+  <section>
+    <div class="panel">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 10px;">
+        <h2 style="margin:0;">Team contacts <span class="badge" id="queue-count">0</span></h2>
+        <div style="display:flex; gap:6px;">
+          <button class="icon-btn" id="export-csv" title="Export CSV for HubSpot" style="width:auto; height:32px; padding:0 10px; font-size:12px; gap:4px;">CSV ↓</button>
+          <button class="icon-btn" id="refresh-queue" title="Refresh from sheet" style="width:32px; height:32px; font-size:14px;">↻</button>
+        </div>
+      </div>
+      <div class="queue" id="queue"></div>
+      <div class="muted" id="queue-empty">No contacts yet — scan one or tap ↻ to pull the team's contacts from the sheet.</div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Sticky submit bar -->
+<div class="sticky-bottom">
+  <div class="inner">
+    <button class="primary" id="submit-btn" disabled>Submit 0 contacts to HubSpot</button>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-bg" id="settings-modal">
+  <div class="modal">
+    <h2>Settings</h2>
+
+    <div class="settings-tabs">
+      <div class="stab active" data-pane="conn">Connection</div>
+      <div class="stab" data-pane="fields">Fields</div>
+    </div>
+
+    <!-- Connection pane -->
+    <div class="settings-pane active" id="pane-conn">
+      <label>HubSpot Private App access token</label>
+      <input type="password" id="cfg-token" placeholder="pat-na1-..." autocomplete="off" />
+      <div class="muted" style="margin-top:4px;">Create one at HubSpot → Settings → Integrations → Private Apps. Needs <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, and <code>crm.lists.write</code> scopes.</div>
+
+      <label>Static (manual) list ID — optional</label>
+      <input type="text" id="cfg-list-id" placeholder="e.g. 42" />
+      <div class="muted" style="margin-top:4px;">Numeric ID of a static list. New &amp; updated contacts will be added here.</div>
+
+      <label>Active campaign / event</label>
+      <input type="text" id="cfg-campaign" placeholder="e.g. Hint Summit 2026" />
+      <div class="muted" style="margin-top:4px;">Tags every new contact you capture (HubSpot property: <code>campaign_tag</code>). Change this at the start of each event so the same app+sheet stays reusable across campaigns.</div>
+
+      <label>Lead source (auto-tag)</label>
+      <input type="text" id="cfg-lead-source" placeholder="e.g. Conference booth" />
+      <div class="muted" style="margin-top:4px;">Stamped on every new contact (HubSpot property: <code>lead_source</code>).</div>
+
+      <label>Lead source notes (auto-tag)</label>
+      <input type="text" id="cfg-lead-source-notes" placeholder="e.g. Met at Hint Summit booth #14" />
+      <div class="muted" style="margin-top:4px;">Optional context for the source, e.g. specific booth or session (HubSpot property: <code>lead_source_notes</code>).</div>
+
+      <label>Default value for the source field</label>
+      <input type="text" id="cfg-source" placeholder="e.g. Conference booth" />
+
+      <label>Your name (rep name)</label>
+      <input type="text" id="cfg-rep-name" placeholder="e.g. Haley W." />
+      <div class="muted" style="margin-top:4px;">Stamped on every contact you submit. Used to credit you in the shared sheet.</div>
+
+      <label>Submission mode</label>
+      <select id="cfg-mode">
+        <option value="sheet">Shared Google Sheet (recommended)</option>
+        <option value="export">Export-only (CSV per rep, no live API call)</option>
+        <option value="direct">Direct HubSpot API (CORS — usually blocked)</option>
+        <option value="proxy">Custom proxy URL</option>
+      </select>
+
+      <div id="sheet-row" style="display:none;">
+        <label>Google Apps Script web app URL</label>
+        <input type="url" id="cfg-sheet-url" placeholder="https://script.google.com/macros/s/.../exec" />
+        <div class="muted" style="margin-top:4px;">Each submit appends one row to your shared sheet. See the setup guide bundled with this prototype.</div>
+      </div>
+
+      <div id="proxy-row" style="display:none;">
+        <label>Proxy URL</label>
+        <input type="url" id="cfg-proxy" placeholder="https://your-proxy.example.com" />
+        <div class="muted" style="margin-top:4px;">Your proxy must forward bearer auth + JSON body to <code>https://api.hubapi.com</code>.</div>
+      </div>
+
+      <label>HubSpot users (for Contact owner dropdowns)</label>
+      <div style="padding: 10px 12px; background: #11141a; border: 1px solid var(--border); border-radius: 8px;">
+        <div style="font-size: 13px;"><b id="owner-cache-count">0</b> users cached <span class="muted" id="owner-cache-when"></span></div>
+        <button class="secondary" id="fetch-owners-btn" style="margin-top: 8px;">Fetch HubSpot users</button>
+        <div class="muted" id="fetch-owners-status" style="margin-top: 6px;"></div>
+      </div>
+      <div class="muted" style="margin-top:4px;">Requires the <code>crm.objects.owners.read</code> scope on your Private App. Fetched users are cached locally so reps can pick them offline.</div>
+
+      <label style="margin-top: 12px;">Limit owners shown to reps (optional)</label>
+      <textarea id="cfg-owner-allowlist" rows="2" placeholder="rep1@hint.com, rep2@hint.com, rep3@hint.com"></textarea>
+      <div class="muted" style="margin-top:4px;">Comma-, space-, or newline-separated list of allowed owner emails. When set, only these HubSpot users appear in the Contact owner dropdown. Leave blank to show everyone.</div>
+
+      <label style="margin-top: 16px;">HubSpot direct sync (via Apps Script)</label>
+      <div style="padding: 10px 12px; background: #11141a; border: 1px solid var(--border); border-radius: 8px;">
+        <div class="muted" style="font-size: 12px; margin-bottom: 8px;">
+          When the shared Google Sheet is your submission mode, contacts are <b>also</b> upserted into HubSpot by the Apps Script (search by email → update or create). The HubSpot Service Key lives in Script Properties — never paste it into the app or share it.
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="secondary" id="hs-test-btn" style="width:auto; padding:8px 12px; font-size:12px;">Test HubSpot connection</button>
+          <button class="secondary" id="hs-fetch-props-btn" style="width:auto; padding:8px 12px; font-size:12px;">Fetch HubSpot property options</button>
+        </div>
+        <div class="muted" id="hs-status" style="margin-top: 8px; font-size: 12px;"></div>
+      </div>
+
+      <details style="margin-top:14px;">
+        <summary>About CORS &amp; production deployment</summary>
+        <p class="muted">HubSpot's API doesn't return browser-friendly CORS headers, so a pure browser app cannot call it directly without a small server-side proxy. For a prototype, use <b>Export-only</b> mode and import the generated CSV via HubSpot's bulk import, or stand up a ~20-line Cloudflare Worker / Vercel function that forwards requests to <code>api.hubapi.com</code>.</p>
+      </details>
+    </div>
+
+    <!-- Fields pane -->
+    <div class="settings-pane" id="pane-fields">
+      <p class="muted" style="margin-top:0;">Define which fields appear on the contact review form and how they map to HubSpot properties. The <b>email</b> field is used to detect duplicates — leave its internal key as <code>email</code> and its HubSpot mapping as <code>email</code>.</p>
+      <div id="field-list"></div>
+      <div class="row" style="margin-top: 8px;">
+        <button class="secondary" id="add-field">+ Add field</button>
+        <select id="add-preset" class="secondary" style="font-weight:600;">
+          <option value="">+ Add HubSpot preset…</option>
+          <option value="lifecyclestage">Lifecycle stage</option>
+          <option value="hs_lead_status">Lead status</option>
+          <option value="contact_owner">Contact owner (HubSpot user)</option>
+        </select>
+      </div>
+      <button class="ghost" id="reset-fields" style="margin-top: 6px;">Reset to defaults</button>
+      <details style="margin-top:14px;">
+        <summary>Tips on HubSpot property names</summary>
+        <p class="muted">Standard contact properties use lowercase internal names: <code>firstname</code>, <code>lastname</code>, <code>email</code>, <code>phone</code>, <code>mobilephone</code>, <code>jobtitle</code>, <code>company</code>, <code>website</code>, <code>lifecyclestage</code>, <code>hs_lead_status</code>. For custom properties, copy the internal name from HubSpot → Settings → Properties → (your property) → "Internal name". Fields with a blank HubSpot mapping are kept locally but not sent.</p>
+      </details>
+    </div>
+
+    <button class="secondary" id="open-share" style="margin-top: 14px;">📲 Share setup with team (QR)</button>
+
+    <div class="row" style="margin-top: 16px;">
+      <button class="primary" id="save-settings">Save</button>
+      <button class="ghost" id="close-settings">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit-contact modal -->
+<div class="modal-bg" id="edit-modal">
+  <div class="modal">
+    <h2 id="edit-title">Review contact</h2>
+    <div id="edit-source-badges"></div>
+    <div id="edit-card-photo" style="margin: 8px 0; display:none;"></div>
+    <div id="dynamic-form"></div>
+
+    <details style="margin-top:8px;">
+      <summary>Raw scan data</summary>
+      <pre id="f-raw"></pre>
+    </details>
+
+    <div class="row" style="margin-top: 16px;">
+      <button class="primary" id="save-contact">Save to queue</button>
+      <button class="ghost" id="cancel-contact">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Duplicate-detection modal -->
+<div class="modal-bg" id="dupe-modal">
+  <div class="modal">
+    <h2>Already captured</h2>
+    <p class="muted" id="dupe-text">This contact's email matches an existing record.</p>
+    <div id="dupe-summary" style="background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin: 10px 0;"></div>
+    <div class="row" style="margin-top: 14px;">
+      <button class="primary" id="dupe-open">Open existing</button>
+      <button class="secondary" id="dupe-new">Save as new anyway</button>
+    </div>
+    <button class="ghost" id="dupe-cancel" style="margin-top: 8px;">Cancel</button>
+  </div>
+</div>
+
+<!-- Setup-share modal (QR onboarding) -->
+<div class="modal-bg" id="share-modal">
+  <div class="modal">
+    <h2>Share setup with reps</h2>
+    <p class="muted">Reps scan this QR with their phone camera. The app opens pre-configured with the Apps Script URL, active campaign, and field set. They only need to type their name.</p>
+    <div style="display:flex; justify-content:center; margin: 14px 0;">
+      <img id="share-qr" alt="Setup QR" style="width: 240px; height: 240px; background: #fff; padding: 8px; border-radius: 12px; border: 1px solid var(--border);" />
+    </div>
+    <div id="share-qr-error" class="muted" style="display:none; text-align:center; color: var(--warn); font-size: 12px; margin: -6px 0 12px;"></div>
+    <label>Or copy the link</label>
+    <textarea id="share-url" readonly style="font-size: 11px;"></textarea>
+    <div class="row" style="margin-top: 12px;">
+      <button class="secondary" id="share-copy">Copy link</button>
+      <button class="ghost" id="share-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Submit results modal -->
+<div class="modal-bg" id="result-modal">
+  <div class="modal">
+    <h2>Submission</h2>
+    <div id="result-body"></div>
+    <div class="row" style="margin-top: 16px;">
+      <button class="primary" id="close-result">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="save-burst" id="save-burst">
+  <div class="check">
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <polyline points="14,34 28,46 50,20"></polyline>
+    </svg>
+  </div>
+</div>
+
+<script>
+/* ---------------- Defaults ---------------- */
+// Hint Health field schema. HubSpot internal names confirmed by Haley 2026-05-21.
+// Dropdown option *values* for Specialty / State are placeholders — admin should
+// click "Fetch HubSpot properties" in Settings to overwrite with the real
+// internal values straight from HubSpot.
+const DEFAULT_FIELDS = [
+  { key: 'lead_temperature', label: 'Lead temperature', type: 'select', hubspot: '', required: false,
+    options: [
+      { label: 'Hot',  value: 'hot'  },
+      { label: 'Warm', value: 'warm' },
+      { label: 'Cold', value: 'cold' },
+    ],
+  },
+  { key: 'firstname',  label: 'First name', type: 'text',     hubspot: 'firstname',   required: false },
+  { key: 'lastname',   label: 'Last name',  type: 'text',     hubspot: 'lastname',    required: false },
+  { key: 'email',      label: 'Email',      type: 'email',    hubspot: 'email',       required: true  },
+  { key: 'company',    label: 'Company',    type: 'text',     hubspot: 'company',     required: false },
+  { key: 'jobtitle',   label: 'Job title',  type: 'text',     hubspot: 'jobtitle',    required: false },
+  { key: 'website',    label: 'Website',    type: 'url',      hubspot: 'website',     required: false },
+  { key: 'phone',      label: 'Phone',      type: 'tel',      hubspot: 'phone',       required: false },
+  { key: 'mobile',     label: 'Mobile',     type: 'tel',      hubspot: 'mobilephone', required: false },
+  { key: 'specialty',  label: 'Specialty',  type: 'select',   hubspot: 'specialty',   required: false,
+    options: [
+      { label: 'Family Medicine',     value: 'family_medicine' },
+      { label: 'Pediatrics',          value: 'pediatrics' },
+      { label: 'Internal Medicine',   value: 'internal_medicine' },
+      { label: 'Functional Medicine', value: 'functional_medicine' },
+      { label: 'Urgent Care',         value: 'urgent_care' },
+      { label: 'Concierge',           value: 'concierge' },
+      { label: 'Specialty',           value: 'specialty' },
+      { label: 'Other',               value: 'other' },
+    ],
+  },
+  { key: 'state_dropdown', label: 'State', type: 'select', hubspot: 'state_dropdown', required: false, options: [] },
+  { key: 'owner', label: 'Contact owner', type: 'hubspot_user', hubspot: 'hubspot_owner_id', required: false },
+  { key: 'create_lead', label: 'Create lead?', type: 'checkbox', hubspot: 'create_lead', required: false },
+  { key: 'popl_notes', label: 'Notes', type: 'textarea', hubspot: 'popl_notes', required: false },
+];
+
+/* ---------------- State ---------------- */
+const STATE = {
+  mode: 'qr',
+  queue: loadQueue(),
+  editingIdx: null,
+  settings: loadSettings(),
+  fields: loadFields(),
+  owners: loadOwners(),
+  qrScanner: null,
+  nfcReader: null,
+};
+
+function loadQueue() {
+  try {
+    const q = JSON.parse(localStorage.getItem('badgeScanner.queue') || 'null');
+    if (Array.isArray(q)) return q;
+  } catch (e) {}
+  return [];
+}
+function saveQueue() {
+  try { localStorage.setItem('badgeScanner.queue', JSON.stringify(STATE.queue)); } catch (e) {}
+}
+
+/* ---------------- Save feedback ---------------- */
+function haptic(duration = 50) {
+  try { if (navigator.vibrate) navigator.vibrate(duration); } catch (e) {}
+}
+function playBurstAndChime() {
+  playBurst();
+  playSaveChime();
+}
+function playBurst() {
+  const el = document.getElementById('save-burst');
+  if (!el) return;
+  el.classList.add('show');
+  // Re-trigger animation by reflow
+  const check = el.querySelector('.check');
+  if (check) { check.style.animation = 'none'; check.offsetHeight; check.style.animation = ''; }
+  haptic(60);
+  setTimeout(() => el.classList.remove('show'), 650);
+}
+function playPulse() {
+  const el = document.getElementById('queue-count');
+  if (!el) return;
+  el.classList.remove('pulse');
+  void el.offsetWidth; // reflow to restart animation
+  el.classList.add('pulse');
+  haptic(30);
+}
+
+function loadOwners() {
+  try {
+    const c = JSON.parse(localStorage.getItem('badgeScanner.owners') || 'null');
+    if (c && Array.isArray(c.items)) return c;
+  } catch (e) {}
+  return { fetched: null, items: [] };
+}
+function saveOwners() {
+  localStorage.setItem('badgeScanner.owners', JSON.stringify(STATE.owners));
+}
+
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem('badgeScanner.settings') || '{}'); }
+  catch (e) { return {}; }
+}
+function saveSettings() {
+  localStorage.setItem('badgeScanner.settings', JSON.stringify(STATE.settings));
+}
+function loadFields() {
+  try {
+    const f = JSON.parse(localStorage.getItem('badgeScanner.fields') || 'null');
+    if (Array.isArray(f) && f.length) return f;
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_FIELDS));
+}
+function saveFields() {
+  localStorage.setItem('badgeScanner.fields', JSON.stringify(STATE.fields));
+}
+
+/* ---------------- Helpers ---------------- */
+function $(id) { return document.getElementById(id); }
+function toast(msg, ms = 2200) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), ms);
+}
+function uid() { return 'c_' + Math.random().toString(36).slice(2, 10); }
+function escapeHtml(s) { return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ---------------- Tabs ---------------- */
+document.querySelectorAll('#tabs .tab').forEach(tab => {
+  tab.addEventListener('click', () => switchMode(tab.dataset.mode));
+});
+function switchMode(mode) {
+  STATE.mode = mode;
+  document.querySelectorAll('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  document.querySelectorAll('.mode-panel').forEach(p => p.style.display = 'none');
+  $('panel-' + mode).style.display = '';
+  $('header-sub').textContent = ({
+    qr: 'Aim camera at a QR code',
+    card: 'Snap or upload a card photo',
+    vcard: 'Upload a .vcf file',
+    nfc: 'Tap the badge to your phone (Android only)',
+  })[mode];
+  if (mode !== 'qr' && STATE.qrScanner) stopQr();
+  if (mode !== 'nfc' && STATE.nfcReader) stopNfc();
+}
+
+/* ---------------- Parsers ---------------- */
+// Common honorifics/titles stripped before splitting a full name into first/last.
+const NAME_TITLE_RE = /^(Dr|Mr|Mrs|Ms|Miss|Mx|Prof|Sir|Dame|Hon|Capt|Lt|Sgt|Rev|Fr|Sr)\.?\s+/i;
+const NAME_SUFFIX_RE = /[,\s]+(Jr|Sr|II|III|IV|MD|DO|PhD|RN|NP|PA|DDS|Esq|MBA)\.?$/i;
+
+function splitFullName(s) {
+  if (!s) return { firstname: '', lastname: '' };
+  let cleaned = String(s).trim();
+  // Strip leading honorific (Dr., Mr., etc.)
+  cleaned = cleaned.replace(NAME_TITLE_RE, '');
+  // Capture and strip trailing suffix so it doesn't pollute the lastname
+  const suffixMatch = cleaned.match(NAME_SUFFIX_RE);
+  if (suffixMatch) cleaned = cleaned.replace(NAME_SUFFIX_RE, '').trim();
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (!parts.length) return { firstname: '', lastname: '' };
+  if (parts.length === 1) return { firstname: parts[0], lastname: '' };
+  return { firstname: parts[0], lastname: parts.slice(1).join(' ') };
+}
+
+function parseVCard(text) {
+  const obj = { sources: ['vcard'], raw: text, values: {} };
+  const lines = text.replace(/\r/g, '').split(/\n(?=[A-Z])/);
+  let fnValue = null;   // unstructured full name
+  let nValue = null;    // structured family;given;additional;prefix;suffix
+  for (let line of lines) {
+    line = line.trim();
+    const [keyPart, ...rest] = line.split(':');
+    if (!rest.length) continue;
+    const value = rest.join(':').trim();
+    const key = keyPart.split(';')[0].toUpperCase();
+    const params = keyPart.split(';').slice(1).join(';').toUpperCase();
+    if (key === 'FN') {
+      fnValue = value;
+    } else if (key === 'N') {
+      nValue = value;
+    } else if (key === 'EMAIL') {
+      obj.values.email = obj.values.email || value;
+    } else if (key === 'TEL') {
+      if (/CELL|MOBILE/.test(params)) obj.values.mobile = obj.values.mobile || value;
+      else obj.values.phone = obj.values.phone || value;
+    } else if (key === 'ORG') {
+      obj.values.company = value.split(';')[0];
+    } else if (key === 'TITLE') {
+      obj.values.jobtitle = value;
+    } else if (key === 'URL') {
+      obj.values.website = obj.values.website || value;
+    } else if (key === 'NOTE') {
+      obj.values.notes = (obj.values.notes ? obj.values.notes + '\n' : '') + value;
+    }
+  }
+  // Resolve name: structured N: wins (when it has values), FN: is fallback.
+  if (nValue) {
+    const np = nValue.split(';');
+    const nLast = (np[0] || '').trim();
+    const nFirst = (np[1] || '').trim();
+    if (nFirst) obj.values.firstname = nFirst;
+    if (nLast) obj.values.lastname = nLast;
+  }
+  if (fnValue && (!obj.values.firstname || !obj.values.lastname)) {
+    const split = splitFullName(fnValue);
+    if (!obj.values.firstname && split.firstname) obj.values.firstname = split.firstname;
+    if (!obj.values.lastname && split.lastname) obj.values.lastname = split.lastname;
+  }
+  return obj;
+}
+
+function parseMeCard(text) {
+  const obj = { sources: ['mecard'], raw: text, values: {} };
+  const body = text.replace(/^MECARD:/i, '').replace(/;;$/, '');
+  body.split(';').forEach(part => {
+    const idx = part.indexOf(':');
+    if (idx < 0) return;
+    const k = part.slice(0, idx).toUpperCase();
+    const v = part.slice(idx + 1).trim();
+    if (k === 'N') {
+      const [last, first] = v.split(',');
+      obj.values.lastname = last; obj.values.firstname = first;
+    } else if (k === 'TEL') obj.values.phone = v;
+    else if (k === 'EMAIL') obj.values.email = v;
+    else if (k === 'ORG') obj.values.company = v;
+    else if (k === 'URL') obj.values.website = v;
+    else if (k === 'NOTE') obj.values.notes = v;
+  });
+  return obj;
+}
+
+function parseFreeform(text) {
+  const obj = { sources: ['freeform'], raw: text, values: {} };
+  const emailMatch = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+  if (emailMatch) obj.values.email = emailMatch[0];
+  const phoneMatch = text.match(/(\+?[\d(]\s?[\d\s().-]{7,}\d)/);
+  if (phoneMatch) obj.values.phone = phoneMatch[0].trim();
+  const urlMatch = text.match(/https?:\/\/[^\s]+|\bwww\.[^\s]+|\b[\w-]+\.(com|io|co|net|org|ai|app)\b/i);
+  if (urlMatch) obj.values.website = urlMatch[0];
+  const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const nameLine = lines.find(l => !/[@\d]|http/i.test(l) && l.split(' ').length >= 2 && l.length < 50);
+  if (nameLine) {
+    const split = splitFullName(nameLine);
+    if (split.firstname) obj.values.firstname = split.firstname;
+    if (split.lastname) obj.values.lastname = split.lastname;
+    const i = lines.indexOf(nameLine);
+    if (lines[i+1] && lines[i+1].length < 60) obj.values.jobtitle = lines[i+1];
+    if (lines[i+2] && lines[i+2].length < 60 && !/[@]/.test(lines[i+2])) obj.values.company = lines[i+2];
+  }
+  return obj;
+}
+
+function autoParse(text) {
+  const t = text.trim();
+  if (/^BEGIN:VCARD/i.test(t)) return parseVCard(t);
+  if (/^MECARD:/i.test(t)) return parseMeCard(t);
+  if (/^https?:\/\//i.test(t) && !/\n/.test(t)) {
+    return { sources: ['url'], values: { website: t }, raw: t };
+  }
+  return parseFreeform(t);
+}
+
+/* ---------------- QR ---------------- */
+$('qr-start').addEventListener('click', startQr);
+$('qr-stop').addEventListener('click', stopQr);
+
+async function startQr() {
+  if (STATE.qrScanner) return;
+  try {
+    STATE.qrScanner = new Html5Qrcode("qr-reader");
+    await STATE.qrScanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      (decodedText) => {
+        stopQr();
+        handleScannedQrPayload(decodedText);
+      },
+      () => {}
+    );
+    toast('Camera started');
+  } catch (e) {
+    toast('Camera failed: ' + (e.message || e));
+    STATE.qrScanner = null;
+  }
+}
+
+/**
+ * Process the raw string a QR code resolved to. Most badges encode a vCard;
+ * those parse cleanly with autoParse. Some encode just a URL (Popl, HiHello,
+ * lnkd.in, etc.) — for those we ask the Apps Script to fetch the page and
+ * extract contact fields. The form opens immediately with whatever we have,
+ * and any extracted fields get merged in once the round-trip finishes.
+ */
+function handleScannedQrPayload(decodedText) {
+  const parsed = autoParse(decodedText);
+  parsed.sources = parsed.sources || []; parsed.sources.unshift('qr');
+  const wasUrlOnly = parsed.sources.includes('url') && !parsed.values.firstname && !parsed.values.email;
+  openEdit(parsed);
+  if (wasUrlOnly) {
+    extractFieldsFromUrlAndMerge(decodedText.trim());
+  }
+}
+
+async function extractFieldsFromUrlAndMerge(url) {
+  if (!STATE.settings.sheetUrl) return;
+  toast('Looking up the URL…');
+  try {
+    const res = await fetch(STATE.settings.sheetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'url-extract', url }),
+    });
+    // no-cors response is opaque, but if we got a real response we can parse it.
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (!data || !data.ok || !data.fields) {
+      toast('Could not auto-fill from URL — type the rest in.');
+      return;
+    }
+    // Merge the extracted fields into the open edit form. Only fill empty fields
+    // so we don't clobber anything the rep typed in the second or two it took
+    // for the round trip.
+    let filled = 0;
+    Object.keys(data.fields).forEach(key => {
+      const el = document.querySelector(`#dynamic-form [data-field-key="${CSS.escape(key)}"]`);
+      if (el && !el.value && data.fields[key]) {
+        el.value = data.fields[key];
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        filled++;
+      }
+    });
+    toast(filled
+      ? `Auto-filled ${filled} field${filled === 1 ? '' : 's'} from URL`
+      : 'No extra fields found at URL');
+  } catch (e) {
+    toast('URL lookup failed: ' + (e.message || e));
+  }
+}
+async function stopQr() {
+  if (!STATE.qrScanner) return;
+  try { await STATE.qrScanner.stop(); STATE.qrScanner.clear(); } catch (e) {}
+  STATE.qrScanner = null;
+}
+
+/* ---------------- Card OCR ---------------- */
+/**
+ * Preprocess a card image before sending to Claude vision: cap the long edge at
+ * 1800px to keep the upload reasonable, but otherwise send the original color
+ * photo as-is. Claude vision is trained on natural photos and an aggressive
+ * grayscale + contrast stretch (good for Tesseract) actively destroys accuracy,
+ * especially for photos of screens where the contrast stretch amplifies moiré.
+ *
+ * If the photo is already smaller than 1800px on the long edge, we just
+ * re-encode the original file as JPEG with high quality (no resize, no filter).
+ */
+async function preprocessCardImage(file) {
+  const img = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = URL.createObjectURL(file);
+  });
+  const cap = 1800;
+  const long = Math.max(img.width, img.height);
+  // Only resize if the image is BIGGER than the cap. Don't upscale — upscaling
+  // doesn't add real information and just inflates the payload.
+  const scale = long > cap ? cap / long : 1;
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, w, h);
+  return await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
+}
+
+/**
+ * Read a Blob/File as a base64 string (no data: prefix).
+ */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const result = String(r.result || '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.substring(comma + 1) : result);
+    };
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+/**
+ * Call the Apps Script ?action=scan endpoint, which both OCRs the card
+ * via Claude vision AND saves the image to Drive. Returns { fields, photo_url }
+ * or null on failure. Uses Content-Type: text/plain to keep the request as a
+ * "simple" CORS request (no preflight).
+ */
+async function scanCardViaAppsScript(blob) {
+  if (!STATE.settings.sheetUrl) return null;
+  const base64 = await fileToBase64(blob);
+  const media = blob.type || 'image/jpeg';
+  try {
+    const res = await fetch(STATE.settings.sheetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'scan', image: base64, media_type: media }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data;
+  } catch (e) {
+    console.warn('Vision scan failed, falling back to in-browser OCR:', e);
+    return null;
+  }
+}
+
+$('card-file').addEventListener('change', async (ev) => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const progress = $('ocr-progress');
+  progress.style.display = '';
+  progress.textContent = 'Preparing image…';
+  try {
+    const processed = await preprocessCardImage(file);
+
+    // Try the high-accuracy path first: Claude vision via Apps Script.
+    progress.textContent = 'Reading card…';
+    const scan = await scanCardViaAppsScript(processed);
+    if (scan && scan.fields) {
+      progress.style.display = 'none';
+      const parsed = {
+        sources: ['card-vision'],
+        values: cleanFieldsFromVision(scan.fields),
+        raw: 'Claude vision OCR. photo_url=' + (scan.photo_url || ''),
+        card_photo_url: scan.photo_url || '',
+      };
+      openEdit(parsed);
+      return;
+    }
+
+    // Fallback: in-browser Tesseract (cheap, mediocre accuracy)
+    progress.textContent = 'Falling back to in-browser OCR…';
+    const result = await Tesseract.recognize(processed, 'eng', {
+      logger: m => {
+        if (m.status && m.progress != null) {
+          progress.textContent = m.status + ' ' + Math.round(m.progress * 100) + '%';
+        }
+      }
+    });
+    progress.style.display = 'none';
+    const parsed = parseFreeform(result.data.text || '');
+    parsed.sources = ['card-ocr'];
+    openEdit(parsed);
+  } catch (e) {
+    progress.style.display = 'none';
+    toast('OCR failed: ' + (e.message || e));
+  } finally {
+    ev.target.value = '';
+  }
+});
+
+/**
+ * Claude returns a JSON object with HubSpot-property-style keys (firstname, etc.).
+ * Map those back to the app's internal field keys (firstname, lastname, email,
+ * phone, mobile, jobtitle, company, website). Lightweight passthrough — the
+ * field names already line up because Claude is prompted with them.
+ */
+function cleanFieldsFromVision(f) {
+  const v = {};
+  ['firstname','lastname','email','phone','mobile','jobtitle','company','website'].forEach(k => {
+    if (f[k] != null && String(f[k]).length) v[k] = String(f[k]).trim();
+  });
+  return v;
+}
+
+/* ---------------- vCard upload ---------------- */
+$('vcard-file').addEventListener('change', async (ev) => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  openEdit(parseVCard(text));
+  ev.target.value = '';
+});
+
+/* ---------------- NFC ---------------- */
+$('nfc-start').addEventListener('click', startNfc);
+$('nfc-stop').addEventListener('click', stopNfc);
+
+async function startNfc() {
+  if (!('NDEFReader' in window)) {
+    $('nfc-status').textContent = 'Web NFC not supported on this device/browser.';
+    return;
+  }
+  try {
+    STATE.nfcReader = new NDEFReader();
+    await STATE.nfcReader.scan();
+    $('nfc-status').textContent = 'Listening… tap a badge.';
+    STATE.nfcReader.onreading = (event) => {
+      const decoder = new TextDecoder();
+      let combined = '';
+      for (const record of event.message.records) {
+        if (record.recordType === 'text') combined += decoder.decode(record.data) + '\n';
+        else if (record.recordType === 'url') combined += decoder.decode(record.data) + '\n';
+        else if (record.recordType === 'mime' && record.mediaType && record.mediaType.includes('vcard')) {
+          combined += decoder.decode(record.data) + '\n';
+        }
+      }
+      if (combined.trim()) {
+        const parsed = autoParse(combined.trim());
+        parsed.sources = parsed.sources || []; parsed.sources.unshift('nfc');
+        openEdit(parsed);
+      }
+    };
+    STATE.nfcReader.onreadingerror = () => $('nfc-status').textContent = 'Could not read tag, try again.';
+  } catch (e) {
+    $('nfc-status').textContent = 'NFC error: ' + (e.message || e);
+    STATE.nfcReader = null;
+  }
+}
+function stopNfc() {
+  STATE.nfcReader = null;
+  $('nfc-status').textContent = 'Stopped.';
+}
+
+/* ---------------- Edit modal (dynamic form) ---------------- */
+function renderDynamicForm(values, sources) {
+  const container = $('dynamic-form');
+  container.innerHTML = '';
+  STATE.fields.forEach(f => {
+    const wrap = document.createElement('div');
+    const lab = document.createElement('label');
+    lab.textContent = f.label + (f.required ? ' *' : '');
+    wrap.appendChild(lab);
+    let input;
+    if (f.type === 'textarea') {
+      input = document.createElement('textarea');
+      // Add a mic button for voice notes if SpeechRecognition is available
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SR) {
+        const micRow = document.createElement('div');
+        micRow.style.cssText = 'display:flex; gap:8px; margin-top:6px; align-items:center; flex-wrap: wrap;';
+        const mic = document.createElement('button');
+        mic.type = 'button';
+        mic.className = 'primary';
+        // Bigger, more prominent — voice is faster than thumb-typing at a booth.
+        mic.style.cssText = 'width:auto; padding:14px 22px; font-size:15px; font-weight:700; border-radius:999px;';
+        mic.innerHTML = '🎙 Tap to dictate';
+        const status = document.createElement('span');
+        status.className = 'muted';
+        status.style.cssText = 'font-size:11px; flex:1;';
+        let rec = null;
+        // Capture the textarea by closure — note `input` is let-scoped to this iteration
+        const targetTextarea = input;
+        mic.addEventListener('click', () => {
+          if (rec) { try { rec.stop(); } catch(e) {} return; }
+          rec = new SR();
+          rec.continuous = false;
+          rec.interimResults = true;   // live updates as the rep speaks
+          rec.lang = 'en-US';
+          const baseValue = targetTextarea.value;
+          let finalText = '';
+          rec.onstart = () => {
+            mic.innerHTML = '⏹ Stop';
+            status.innerHTML = '<span style="color: var(--accent);">● Listening — speak now</span>';
+          };
+          rec.onresult = (ev) => {
+            let interim = '';
+            for (let i = ev.resultIndex; i < ev.results.length; i++) {
+              const t = ev.results[i][0].transcript;
+              if (ev.results[i].isFinal) finalText += t;
+              else interim += t;
+            }
+            // Append live to the textarea so the rep sees what's being captured
+            const joiner = baseValue && (finalText || interim) ? '\n' : '';
+            targetTextarea.value = baseValue + joiner + finalText + interim;
+            // Force input event so any listeners (none right now, but defensive) pick it up
+            targetTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+          };
+          rec.onerror = (ev) => {
+            status.innerHTML = '<span style="color: var(--err);">Voice error: ' + ev.error + ' — try again</span>';
+            toast('Voice error: ' + ev.error);
+          };
+          rec.onend = () => {
+            mic.innerHTML = '🎙 Tap to dictate';
+            const trimmed = finalText.trim();
+            if (trimmed) {
+              status.innerHTML = '<span style="color: var(--ok);">✓ Captured "' + escapeHtml(trimmed.slice(0, 80)) + (trimmed.length > 80 ? '…' : '') + '"</span>';
+              toast('Captured: "' + trimmed.slice(0, 60) + (trimmed.length > 60 ? '…' : '') + '"');
+            } else {
+              status.innerHTML = '<span class="muted">No speech detected.</span>';
+            }
+            rec = null;
+          };
+          try {
+            rec.start();
+          } catch (e) {
+            status.innerHTML = '<span style="color: var(--warn);">Tap mic again after granting microphone permission</span>';
+            rec = null;
+          }
+        });
+        micRow.appendChild(mic);
+        micRow.appendChild(status);
+        // Append the mic row AFTER the textarea is added (later in the loop)
+        setTimeout(() => wrap.appendChild(micRow), 0);
+      }
+    } else if (f.type === 'select') {
+      const opts = f.options || [];
+      // Render as chip row for short option lists (best for booth UX)
+      if (opts.length > 0 && opts.length <= 3) {
+        // Hidden input holds the actual value
+        input = document.createElement('input');
+        input.type = 'hidden';
+        input.dataset.fieldKey = f.key;
+        const chipRow = document.createElement('div');
+        chipRow.className = 'chips';
+        chipRow.style.marginTop = '4px';
+        opts.forEach(opt => {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'chip';
+          chip.textContent = opt.label || opt.value;
+          // Color-code by value (hot/warm/cold) or default
+          const tempType = ['hot','warm','cold'].includes((opt.value || '').toLowerCase()) ? opt.value.toLowerCase() : 'default';
+          chip.dataset.temp = tempType;
+          chip.dataset.value = opt.value;
+          chip.addEventListener('click', () => {
+            const current = input.value;
+            if (current === opt.value) {
+              // tap selected chip to clear
+              input.value = '';
+              chip.classList.remove('selected');
+            } else {
+              input.value = opt.value;
+              chipRow.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+              chip.classList.add('selected');
+            }
+          });
+          chipRow.appendChild(chip);
+        });
+        wrap.appendChild(input);
+        wrap.appendChild(chipRow);
+        // Restore selection
+        const cv = values[f.key];
+        if (cv != null && String(cv).length) {
+          input.value = cv;
+          chipRow.querySelectorAll('.chip').forEach(c => {
+            if (c.dataset.value === cv) c.classList.add('selected');
+          });
+        }
+        container.appendChild(wrap);
+        return; // skip the generic append at the bottom of this iteration
+      }
+      input = document.createElement('select');
+      const blank = document.createElement('option');
+      blank.value = ''; blank.textContent = '— select —';
+      input.appendChild(blank);
+      opts.forEach(opt => {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label || opt.value;
+        input.appendChild(o);
+      });
+    } else if (f.type === 'checkbox') {
+      // Render an iOS-style toggle switch. The actual <input type="checkbox">
+      // lives inside the switch and drives the visual state via :checked.
+      const row = document.createElement('div');
+      row.className = 'toggle-row';
+      const sw = document.createElement('label');
+      sw.className = 'toggle-switch';
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      input.dataset.fieldKey = f.key;
+      const track = document.createElement('span');
+      track.className = 'toggle-track';
+      const knob = document.createElement('span');
+      knob.className = 'toggle-knob';
+      track.appendChild(knob);
+      sw.appendChild(input);
+      sw.appendChild(track);
+      const state = document.createElement('span');
+      state.className = 'toggle-state';
+      const sync = () => {
+        state.textContent = input.checked ? 'Yes' : 'No';
+        state.classList.toggle('on', input.checked);
+      };
+      const cv = values[f.key];
+      input.checked = (cv === true || cv === 'true' || cv === 'Yes' || cv === 'yes' || cv === 1 || cv === '1');
+      sync();
+      input.addEventListener('change', sync);
+      row.appendChild(sw);
+      row.appendChild(state);
+      wrap.appendChild(row);
+      container.appendChild(wrap);
+      return; // skip the generic value-set + append below
+    } else if (f.type === 'hubspot_user') {
+      input = document.createElement('select');
+      const blank = document.createElement('option');
+      blank.value = ''; blank.textContent = STATE.owners.items.length ? '— select owner —' : '— fetch users in Settings first —';
+      input.appendChild(blank);
+      // If the admin has set an owner allowlist, filter the dropdown to just
+      // those emails. Empty allowlist means "show everyone".
+      const allowlistRaw = (STATE.settings.ownerAllowlist || '').toLowerCase();
+      const allowed = allowlistRaw
+        ? new Set(allowlistRaw.split(/[\s,]+/).map(s => s.trim()).filter(Boolean))
+        : null;
+      const visibleOwners = allowed
+        ? STATE.owners.items.filter(u => u.email && allowed.has(u.email.toLowerCase()))
+        : STATE.owners.items;
+      visibleOwners.forEach(u => {
+        const o = document.createElement('option');
+        o.value = u.id;
+        // Show first name only for cleaner UX. Falls back to full name, email, or ID
+        // when the first name isn't available.
+        o.textContent = u.firstName
+          || [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
+          || u.email
+          || ('Owner ' + u.id);
+        input.appendChild(o);
+      });
+    } else {
+      input = document.createElement('input');
+      input.type = f.type || 'text';
+    }
+    input.dataset.fieldKey = f.key;
+    const currentVal = values[f.key];
+    if (currentVal != null) input.value = currentVal;
+    wrap.appendChild(input);
+    container.appendChild(wrap);
+  });
+
+  const badges = (sources || []).map(s => `<span class="badge">${escapeHtml(s)}</span>`).join('');
+  $('edit-source-badges').innerHTML = badges;
+}
+
+function openEdit(data, idx = null) {
+  STATE.editingIdx = idx;
+  STATE.editingCardPhotoUrl = data.card_photo_url
+    || (idx != null && STATE.queue[idx]?.card_photo_url)
+    || '';
+  $('edit-title').textContent = idx == null ? 'Review contact' : 'Edit contact';
+
+  // Merge defaults — auto-fill campaign + source from settings if the rep hasn't set them
+  const values = Object.assign({}, data.values || {});
+  if (!values.campaign && STATE.settings.campaign) values.campaign = STATE.settings.campaign;
+  if (!values.source && STATE.settings.source) values.source = STATE.settings.source;
+
+  renderDynamicForm(values, data.sources);
+  attachEmailValidation();
+  $('f-raw').textContent = data.raw || '(no raw payload)';
+  // Show photo thumbnail if one was captured
+  const photoEl = $('edit-card-photo');
+  if (photoEl) {
+    if (STATE.editingCardPhotoUrl) {
+      photoEl.innerHTML = `<a href="${escapeHtml(STATE.editingCardPhotoUrl)}" target="_blank" rel="noopener"><img src="${escapeHtml(STATE.editingCardPhotoUrl)}" alt="Card photo" style="max-width:100%; max-height:180px; border-radius:8px; border:1px solid var(--border);" /></a>`;
+      photoEl.style.display = '';
+    } else {
+      photoEl.innerHTML = '';
+      photoEl.style.display = 'none';
+    }
+  }
+  $('edit-modal').classList.add('open');
+}
+function closeEdit() {
+  $('edit-modal').classList.remove('open');
+  STATE.editingIdx = null;
+}
+$('cancel-contact').addEventListener('click', closeEdit);
+
+/**
+ * Watch every input/textarea wired to a field of type "email" and surface a
+ * non-blocking warning when the value looks malformed. We're intentionally
+ * lenient — OCR'd cards sometimes have weirdness like `name @ company . com`
+ * and we don't want to flag valid stuff. Only obvious garbage triggers.
+ */
+function attachEmailValidation() {
+  const emailKeys = new Set(STATE.fields.filter(f => f.type === 'email').map(f => f.key));
+  document.querySelectorAll('#dynamic-form [data-field-key]').forEach(el => {
+    if (!emailKeys.has(el.dataset.fieldKey)) return;
+    // Remove any prior warning element we may have created
+    const existing = el.parentElement.querySelector('.email-warn');
+    if (existing) existing.remove();
+    const warn = document.createElement('div');
+    warn.className = 'email-warn muted';
+    warn.style.cssText = 'font-size: 11px; margin-top: 4px; color: var(--warn); display: none;';
+    el.parentElement.appendChild(warn);
+    const check = () => {
+      const v = (el.value || '').trim();
+      if (!v) { warn.style.display = 'none'; return; }
+      // Very basic: must have one @ between two non-empty parts, and a dot
+      // in the domain. Anything else warns. Doesn't block save.
+      const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+      if (!ok) {
+        warn.textContent = '⚠ This email looks off — double-check before saving.';
+        warn.style.display = '';
+      } else {
+        warn.style.display = 'none';
+      }
+    };
+    el.addEventListener('input', check);
+    el.addEventListener('blur', check);
+    check(); // run once now in case the OCR pre-filled it
+  });
+}
+
+/**
+ * Play a short confirmation chime on successful save. Uses Web Audio so we
+ * don't have to bundle an audio asset. Two-tone "ding" at ~880Hz then 1320Hz.
+ */
+let _audioCtx = null;
+function playSaveChime() {
+  try {
+    _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _audioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    const playTone = (freq, start, dur) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, now + start);
+      gain.gain.linearRampToValueAtTime(0.18, now + start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + start);
+      osc.stop(now + start + dur + 0.05);
+    };
+    playTone(880, 0, 0.10);
+    playTone(1320, 0.09, 0.15);
+  } catch (e) { /* silently ignore if audio isn't allowed */ }
+}
+function findDuplicate(email, excludeId) {
+  if (!email) return null;
+  const target = email.toLowerCase().trim();
+  return STATE.queue.find(c => {
+    const e = (c.values?.email || '').toLowerCase().trim();
+    return e && e === target && c.id !== excludeId;
+  }) || null;
+}
+
+function commitSaveContact(c, isNew) {
+  if (isNew) STATE.queue.unshift(c);
+  else STATE.queue[STATE.editingIdx] = c;
+
+  renderQueue();
+  closeEdit();
+  if (isNew) playPulse();
+  // Audible confirmation alongside the visual burst — booths are loud, the
+  // visual is easy to miss when reps are talking to a prospect.
+  playSaveChime();
+  toast(isNew ? 'Saving…' : 'Updating…');
+
+  if ((STATE.settings.mode || 'sheet') === 'sheet' && STATE.settings.sheetUrl) {
+    postToSheet(contactToFlatRow(c))
+      .then(() => {
+        c.synced = true;
+        renderQueue();
+        toast(isNew ? 'Added & synced' : 'Updated & synced');
+      })
+      .catch(() => {
+        c.synced = false;
+        renderQueue();
+        toast('Saved locally — will sync when online');
+      });
+  } else {
+    c.synced = true;
+    renderQueue();
+  }
+}
+
+$('save-contact').addEventListener('click', () => {
+  const values = {};
+  document.querySelectorAll('#dynamic-form [data-field-key]').forEach(el => {
+    if (el.type === 'checkbox') {
+      values[el.dataset.fieldKey] = !!el.checked;
+    } else {
+      values[el.dataset.fieldKey] = (el.value || '').trim();
+    }
+  });
+
+  // Required check
+  const missing = STATE.fields.filter(f => f.required && !values[f.key]);
+  if (missing.length) {
+    toast('Required field missing: ' + missing.map(f => f.label).join(', '));
+    return;
+  }
+
+  // Sanity: must have at least something identifying
+  const hasAnything = Object.values(values).some(v => v && v.length);
+  if (!hasAnything) {
+    toast('Fill in at least one field.');
+    return;
+  }
+
+  // Soft check: warn if Contact owner is empty so we don't accidentally drop
+  // contacts in HubSpot with no assignment (which gets inherited by whichever
+  // user owns the contact's company).
+  const ownerField = STATE.fields.find(f => f.type === 'hubspot_user');
+  if (ownerField && !values[ownerField.key]) {
+    if (!confirm('Save without a Contact owner? HubSpot will inherit the owner from the company, which may be the wrong rep. You can also edit later.')) {
+      return;
+    }
+  }
+
+  const isNew = STATE.editingIdx == null;
+  const prev = isNew ? null : STATE.queue[STATE.editingIdx];
+  const c = {
+    id: prev?.id || uid(),
+    values,
+    raw: $('f-raw').textContent,
+    sources: Array.from($('edit-source-badges').children).map(b => b.textContent),
+    capturedAt: prev?.capturedAt || new Date().toISOString(),
+    rep_name: prev?.rep_name || STATE.settings.repName || '',
+    card_photo_url: STATE.editingCardPhotoUrl || prev?.card_photo_url || '',
+    synced: false,
+  };
+
+  // Duplicate detection by email — only for new contacts (editing an existing
+  // contact's email is fine, even if it matches another).
+  if (isNew && values.email) {
+    const dupe = findDuplicate(values.email, c.id);
+    if (dupe) {
+      showDuplicateModal(dupe, () => commitSaveContact(c, true));
+      return;
+    }
+  }
+
+  commitSaveContact(c, isNew);
+});
+
+function showDuplicateModal(existing, onSaveAsNew) {
+  const v = existing.values || {};
+  const name = [v.firstname, v.lastname].filter(Boolean).join(' ') || v.email || '(unnamed)';
+  const when = formatRelativeTime(existing.capturedAt);
+  $('dupe-text').textContent = `This email matches a contact already in the sheet.`;
+  $('dupe-summary').innerHTML = `
+    <div style="font-weight:600;">${escapeHtml(name)}</div>
+    <div class="muted" style="font-size:12px; margin-top:2px;">${escapeHtml([v.jobtitle, v.company].filter(Boolean).join(' · '))}</div>
+    <div class="muted" style="font-size:12px;">${escapeHtml(v.email)}</div>
+    <div class="muted" style="font-size:11px; margin-top:4px;">
+      <span class="badge">${escapeHtml(existing.rep_name || 'unknown rep')}</span>
+      ${when ? '<span class="badge">' + escapeHtml(when) + '</span>' : ''}
+    </div>
+  `;
+  STATE._dupeExisting = existing;
+  STATE._dupeOnSaveAsNew = onSaveAsNew;
+  $('dupe-modal').classList.add('open');
+}
+
+$('dupe-open').addEventListener('click', () => {
+  const existing = STATE._dupeExisting;
+  $('dupe-modal').classList.remove('open');
+  closeEdit();
+  if (existing) {
+    const idx = STATE.queue.findIndex(c => c.id === existing.id);
+    if (idx >= 0) openEdit({ values: existing.values, sources: existing.sources, raw: existing.raw, card_photo_url: existing.card_photo_url }, idx);
+  }
+});
+$('dupe-new').addEventListener('click', () => {
+  $('dupe-modal').classList.remove('open');
+  if (STATE._dupeOnSaveAsNew) STATE._dupeOnSaveAsNew();
+});
+$('dupe-cancel').addEventListener('click', () => {
+  $('dupe-modal').classList.remove('open');
+});
+
+/* ---------------- Queue ---------------- */
+function formatRelativeTime(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return '';
+  const diff = Date.now() - t;
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return Math.floor(diff / 60_000) + 'm ago';
+  if (diff < 86_400_000) return Math.floor(diff / 3_600_000) + 'h ago';
+  return Math.floor(diff / 86_400_000) + 'd ago';
+}
+
+function renderQueue() {
+  const el = $('queue');
+  el.innerHTML = '';
+  STATE.queue.forEach((c, i) => {
+    const v = c.values || {};
+    const div = document.createElement('div');
+    div.className = 'queue-item';
+    const name = [v.firstname, v.lastname].filter(Boolean).join(' ') || v.email || v.company || '(unnamed)';
+    const repBadge = c.rep_name ? `<span class="badge">${escapeHtml(c.rep_name)}</span>` : '';
+    const syncIcon = c.synced ? '<span class="badge ok" title="Synced to sheet">✓</span>' : '<span class="badge warn" title="Pending sync">↻</span>';
+    const when = formatRelativeTime(c.capturedAt);
+    div.innerHTML = `
+      <div style="flex:1; min-width:0;">
+        <div class="name">${escapeHtml(name)} ${syncIcon}</div>
+        <div class="meta">${escapeHtml([v.jobtitle, v.company].filter(Boolean).join(' · '))}</div>
+        <div class="meta">${escapeHtml(v.email || v.phone || '')}</div>
+        <div class="meta">${repBadge}${when ? '<span class="badge">' + escapeHtml(when) + '</span>' : ''}</div>
+      </div>
+      <div class="actions">
+        <button data-act="edit" data-i="${i}">Edit</button>
+        <button data-act="del" data-i="${i}">Remove</button>
+      </div>`;
+    el.appendChild(div);
+  });
+  $('queue-empty').style.display = STATE.queue.length ? 'none' : '';
+  $('queue-count').textContent = STATE.queue.length;
+
+  // Submit button is only relevant when there are unsynced contacts (e.g. offline)
+  const pending = STATE.queue.filter(c => c.synced === false).length;
+  $('submit-btn').disabled = pending === 0;
+  $('submit-btn').textContent = pending
+    ? `Sync ${pending} pending contact${pending === 1 ? '' : 's'}`
+    : 'All contacts synced';
+  // Reflect the same status in the header badge.
+  updateSyncBadge(pending);
+  saveQueue();
+}
+
+function updateSyncBadge(pending) {
+  const badge = document.getElementById('sync-badge');
+  const text = document.getElementById('sync-badge-text');
+  if (!badge || !text) return;
+  if (pending > 0) {
+    badge.classList.remove('sync-ok');
+    badge.classList.add('sync-pending');
+    text.textContent = pending + ' pending';
+  } else {
+    badge.classList.remove('sync-pending');
+    badge.classList.add('sync-ok');
+    text.textContent = 'All synced';
+  }
+}
+
+// Auto-retry pending contacts every 30s when the app is open.
+setInterval(async () => {
+  if (!navigator.onLine) return;
+  const pending = STATE.queue.filter(c => c.synced === false);
+  if (!pending.length) return;
+  for (const c of pending) {
+    try {
+      await postToSheet(contactToFlatRow(c));
+      c.synced = true;
+    } catch (e) { /* keep pending; we'll try again later */ }
+  }
+  renderQueue();
+}, 30000);
+$('queue').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  const i = parseInt(b.dataset.i, 10);
+  if (b.dataset.act === 'edit') openEdit({ values: STATE.queue[i].values, sources: STATE.queue[i].sources, raw: STATE.queue[i].raw }, i);
+  else if (b.dataset.act === 'del') {
+    if (!confirm('Remove this contact from your view? (This does not delete the row from the shared sheet.)')) return;
+    STATE.queue.splice(i, 1);
+    renderQueue();
+  }
+});
+
+/* Refresh button — pull latest team contacts from sheet */
+$('refresh-queue').addEventListener('click', () => syncFromSheet());
+
+/* Export the team's contacts as a HubSpot-ready CSV */
+$('export-csv').addEventListener('click', async () => {
+  // Pull latest before exporting so the CSV reflects everyone's contributions
+  if ((STATE.settings.mode || 'sheet') === 'sheet' && STATE.settings.sheetUrl) {
+    await syncFromSheet({ silent: true });
+  }
+  if (!STATE.queue.length) {
+    toast('No contacts to export yet.');
+    return;
+  }
+  const csv = buildCsv();
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 10);
+  const tag = (STATE.settings.campaign || 'contacts').replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase();
+  a.href = url;
+  a.download = `hubspot-${tag}-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('CSV downloaded — import to HubSpot ✓');
+});
+
+/* ---------------- Settings modal ---------------- */
+$('open-settings').addEventListener('click', () => {
+  $('cfg-token').value = STATE.settings.token || '';
+  $('cfg-list-id').value = STATE.settings.listId || '';
+  $('cfg-source').value = STATE.settings.source || '';
+  $('cfg-campaign').value = STATE.settings.campaign || '';
+  $('cfg-lead-source').value = STATE.settings.leadSource || '';
+  $('cfg-lead-source-notes').value = STATE.settings.leadSourceNotes || '';
+  $('cfg-rep-name').value = STATE.settings.repName || '';
+  $('cfg-owner-allowlist').value = STATE.settings.ownerAllowlist || '';
+  $('cfg-mode').value = STATE.settings.mode || 'sheet';
+  $('cfg-proxy').value = STATE.settings.proxyUrl || '';
+  $('cfg-sheet-url').value = STATE.settings.sheetUrl || '';
+  applyModeVisibility(STATE.settings.mode || 'sheet');
+  refreshOwnerCacheDisplay();
+  renderFieldEditor();
+  $('settings-modal').classList.add('open');
+});
+
+function applyModeVisibility(mode) {
+  $('proxy-row').style.display = (mode === 'proxy') ? '' : 'none';
+  $('sheet-row').style.display = (mode === 'sheet') ? '' : 'none';
+}
+
+function refreshOwnerCacheDisplay() {
+  $('owner-cache-count').textContent = STATE.owners.items.length;
+  $('owner-cache-when').textContent = STATE.owners.fetched
+    ? '(last refreshed ' + new Date(STATE.owners.fetched).toLocaleString() + ')'
+    : '— not yet fetched';
+}
+
+async function fetchAllOwners() {
+  if (!STATE.settings.token) {
+    return { ok: false, error: 'Set your HubSpot token first.' };
+  }
+  const all = [];
+  let after = null;
+  let safety = 50; // up to 5000 owners
+  while (safety-- > 0) {
+    const path = '/crm/v3/owners?limit=100' + (after ? '&after=' + encodeURIComponent(after) : '');
+    const res = await callHubspot(path, 'GET');
+    if (!res.ok) return { ok: false, error: 'HubSpot responded ' + res.status + ': ' + JSON.stringify(res.body) };
+    const results = res.body?.results || [];
+    results.forEach(o => all.push({
+      id: o.id,
+      userId: o.userId,
+      email: o.email || '',
+      firstName: o.firstName || '',
+      lastName: o.lastName || '',
+    }));
+    const next = res.body?.paging?.next?.after;
+    if (!next) break;
+    after = next;
+  }
+  STATE.owners = { fetched: new Date().toISOString(), items: all };
+  saveOwners();
+  return { ok: true, count: all.length };
+}
+
+$('fetch-owners-btn').addEventListener('click', async () => {
+  const status = $('fetch-owners-status');
+  status.textContent = 'Fetching from HubSpot via Apps Script…';
+  $('fetch-owners-btn').disabled = true;
+  try {
+    const r = await jsonpGet('hubspot-owners');
+    $('fetch-owners-btn').disabled = false;
+    if (!r.ok) {
+      status.innerHTML = `<span style="color:var(--err);">HubSpot error: ${escapeHtml(r.error || '')}</span>`;
+      return;
+    }
+    const items = (r.owners || []).map(o => ({
+      id: o.id,
+      email: o.email || '',
+      firstName: o.firstName || '',
+      lastName: o.lastName || '',
+    }));
+    STATE.owners = { fetched: new Date().toISOString(), items: items };
+    saveOwners();
+    refreshOwnerCacheDisplay();
+    status.innerHTML = `<span style="color:var(--ok);">✓ Fetched ${items.length} HubSpot user${items.length === 1 ? '' : 's'}.</span>`;
+  } catch (e) {
+    $('fetch-owners-btn').disabled = false;
+    status.innerHTML = `<span style="color:var(--err);">${escapeHtml(e.message || String(e))}</span>`;
+  }
+});
+$('cfg-mode').addEventListener('change', (e) => {
+  applyModeVisibility(e.target.value);
+});
+
+/* HubSpot test / properties fetch — both use JSONP via the Apps Script. */
+function jsonpGet(action, extraParams = {}) {
+  return new Promise((resolve, reject) => {
+    const url = $('cfg-sheet-url').value.trim() || STATE.settings.sheetUrl;
+    if (!url) return reject(new Error('Set your Apps Script URL first.'));
+    const cb = 'cwk_' + Math.random().toString(36).slice(2, 10);
+    let done = false;
+    const cleanup = () => {
+      try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+      if (script && script.parentNode) script.parentNode.removeChild(script);
+    };
+    window[cb] = (data) => { done = true; resolve(data); cleanup(); };
+    const params = new URLSearchParams({ action, callback: cb, ...extraParams });
+    const sep = url.includes('?') ? '&' : '?';
+    const script = document.createElement('script');
+    script.src = url + sep + params.toString();
+    script.onerror = () => { if (!done) { cleanup(); reject(new Error('Could not reach Apps Script.')); } };
+    document.body.appendChild(script);
+    setTimeout(() => { if (!done) { cleanup(); reject(new Error('Request timed out.')); } }, 20000);
+  });
+}
+
+$('hs-test-btn').addEventListener('click', async () => {
+  const status = $('hs-status');
+  status.innerHTML = '<span style="color:var(--accent);">Pinging HubSpot…</span>';
+  try {
+    const r = await jsonpGet('hubspot-test');
+    if (r.ok) status.innerHTML = `<span style="color:var(--ok);">✓ Connected to HubSpot portal <b>${r.portalId}</b> (${r.accountType || 'STANDARD'})</span>`;
+    else status.innerHTML = `<span style="color:var(--err);">HubSpot error (status ${r.status}): ${escapeHtml(r.error || '')}</span>`;
+  } catch (e) {
+    status.innerHTML = `<span style="color:var(--err);">${escapeHtml(e.message)}</span>`;
+  }
+});
+
+$('hs-fetch-props-btn').addEventListener('click', async () => {
+  const status = $('hs-status');
+  status.innerHTML = '<span style="color:var(--accent);">Fetching properties from HubSpot…</span>';
+  try {
+    const r = await jsonpGet('hubspot-properties');
+    if (!r.ok) {
+      status.innerHTML = `<span style="color:var(--err);">HubSpot error: ${escapeHtml(r.error || '')}</span>`;
+      return;
+    }
+    // Overlay the real internal option values into matching local fields.
+    const byName = {};
+    (r.properties || []).forEach(p => { byName[p.name] = p; });
+    let patched = 0;
+    STATE.fields.forEach(f => {
+      const hs = byName[f.hubspot];
+      if (hs && f.type === 'select' && hs.options && hs.options.length) {
+        f.options = hs.options.map(o => ({ label: o.label, value: o.value }));
+        patched++;
+      }
+    });
+    saveFields();
+    renderFieldEditor();
+    const dropdownList = (r.properties || [])
+      .filter(p => (p.options || []).length)
+      .map(p => `<li><b>${escapeHtml(p.label)}</b> (<code>${escapeHtml(p.name)}</code>): ${p.options.length} options</li>`)
+      .join('');
+    status.innerHTML = `<span style="color:var(--ok);">✓ Fetched ${r.properties.length} properties. Patched ${patched} dropdown field${patched === 1 ? '' : 's'} with real internal values.</span>` +
+      (dropdownList ? `<ul style="margin-top:6px; padding-left: 20px;">${dropdownList}</ul>` : '');
+  } catch (e) {
+    status.innerHTML = `<span style="color:var(--err);">${escapeHtml(e.message)}</span>`;
+  }
+});
+$('close-settings').addEventListener('click', () => $('settings-modal').classList.remove('open'));
+
+/* ---------------- Share setup with team (QR onboarding) ---------------- */
+function base64UrlEncode(s) {
+  return btoa(unescape(encodeURIComponent(s)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function base64UrlDecode(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return decodeURIComponent(escape(atob(s)));
+}
+
+function buildShareConfig() {
+  // Intentionally NOT included: token (security), repName (per-rep), proxyUrl (optional).
+  // We strip dropdown options from each field — they can be 50+ entries with the
+  // HubSpot states/specialty lists, which blows past the QR code URL length limit.
+  // Reps' apps will fetch options from HubSpot via the "Fetch HubSpot property
+  // options" button on first run.
+  var slimFields = STATE.fields.map(function (f) {
+    var out = { key: f.key, label: f.label, type: f.type };
+    if (f.hubspot) out.hubspot = f.hubspot;
+    if (f.required) out.required = f.required;
+    // Keep options ONLY for fields without a HubSpot mapping (e.g., the local
+    // Lead temperature field) — those won't be repopulated by HubSpot fetch.
+    if (!f.hubspot && Array.isArray(f.options) && f.options.length) out.options = f.options;
+    return out;
+  });
+  return {
+    sheetUrl: STATE.settings.sheetUrl || '',
+    mode: STATE.settings.mode || 'sheet',
+    campaign: STATE.settings.campaign || '',
+    source: STATE.settings.source || '',
+    leadSource: STATE.settings.leadSource || '',
+    leadSourceNotes: STATE.settings.leadSourceNotes || '',
+    listId: STATE.settings.listId || '',
+    ownerAllowlist: STATE.settings.ownerAllowlist || '',
+    fields: slimFields,
+  };
+}
+
+function buildShareUrl() {
+  const cfg = buildShareConfig();
+  const enc = base64UrlEncode(JSON.stringify(cfg));
+  const origin = window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
+  return origin + '?config=' + enc;
+}
+
+$('open-share').addEventListener('click', () => {
+  // Make sure the latest in-form values are captured before sharing
+  STATE.settings.sheetUrl = $('cfg-sheet-url').value.trim();
+  STATE.settings.mode = $('cfg-mode').value;
+  STATE.settings.campaign = $('cfg-campaign').value.trim();
+  STATE.settings.source = $('cfg-source').value.trim();
+  if (!STATE.settings.sheetUrl) {
+    toast('Set your Apps Script URL first.');
+    return;
+  }
+  const url = buildShareUrl();
+  $('share-url').value = url;
+  const errBox = $('share-qr-error');
+  errBox.style.display = 'none';
+  errBox.textContent = '';
+  const qrImg = $('share-qr');
+  qrImg.style.display = '';
+  // QR services have a URL length limit (~2-4KB). Warn early instead of waiting
+  // for a broken image. ~2000 chars is a safe ceiling for most QR readers too.
+  if (url.length > 2000) {
+    qrImg.style.display = 'none';
+    errBox.style.display = '';
+    errBox.textContent = 'Setup is too large for a QR code (' + url.length + ' chars). Use the link below — reps can open it on their phone.';
+  } else {
+    qrImg.onerror = () => {
+      qrImg.style.display = 'none';
+      errBox.style.display = '';
+      errBox.textContent = 'QR service unreachable. Use the link below.';
+    };
+    qrImg.onload = () => {
+      qrImg.style.display = '';
+      errBox.style.display = 'none';
+    };
+    qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=480x480&margin=8&data=' + encodeURIComponent(url);
+  }
+  $('share-modal').classList.add('open');
+});
+$('share-copy').addEventListener('click', async () => {
+  const t = $('share-url');
+  t.select();
+  try { await navigator.clipboard.writeText(t.value); toast('Link copied'); }
+  catch (e) { document.execCommand('copy'); toast('Link copied'); }
+});
+$('share-close').addEventListener('click', () => $('share-modal').classList.remove('open'));
+
+/**
+ * On app load, if the URL has ?config=..., decode and apply the config.
+ * Reps get pre-configured Apps Script URL, campaign, source, and field set.
+ * Per-rep values (rep name, HubSpot token) stay user-entered.
+ */
+function applyConfigFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('config');
+    if (!raw) return false;
+    // Only apply the URL config if the user hasn't already set up the app on
+    // this device. This way "Add to Home Screen" -> open PWA -> bootstrap still
+    // works on iOS (where PWA storage is separate from Safari storage), but a
+    // returning rep who customized settings won't have them overwritten by a
+    // stale ?config=... in the URL on refresh.
+    if (STATE.settings.sheetUrl) return false;
+    const cfg = JSON.parse(base64UrlDecode(raw));
+    if (cfg.sheetUrl) STATE.settings.sheetUrl = cfg.sheetUrl;
+    if (cfg.mode) STATE.settings.mode = cfg.mode;
+    if (cfg.campaign) STATE.settings.campaign = cfg.campaign;
+    if (cfg.source) STATE.settings.source = cfg.source;
+    if (cfg.leadSource) STATE.settings.leadSource = cfg.leadSource;
+    if (cfg.leadSourceNotes) STATE.settings.leadSourceNotes = cfg.leadSourceNotes;
+    if (cfg.listId) STATE.settings.listId = cfg.listId;
+    if (cfg.ownerAllowlist) STATE.settings.ownerAllowlist = cfg.ownerAllowlist;
+    if (Array.isArray(cfg.fields) && cfg.fields.length) STATE.fields = cfg.fields;
+    saveSettings();
+    saveFields();
+    // Intentionally NOT cleaning the URL — iOS Safari needs the ?config=... to
+    // remain intact when the user taps "Add to Home Screen" so the PWA's
+    // bookmarked URL carries the config into the PWA's separate storage.
+    return true;
+  } catch (e) {
+    console.warn('Could not apply config from URL:', e);
+    return false;
+  }
+}
+
+/**
+ * After a fresh-from-QR setup, silently pull HubSpot property options + owners
+ * so the rep doesn't have to click two extra buttons before their first scan.
+ * Errors are intentionally non-fatal — if HubSpot is unreachable, the rep can
+ * still scan and save; they'll just see empty dropdowns until they manually fetch.
+ */
+async function autoBootstrapFromHubspot() {
+  if (!STATE.settings.sheetUrl) return;
+  // Note whether we're booting from a blank slate so we know whether to surface
+  // a success toast — silent on routine refreshes, audible on first-run.
+  const wasBlank = !STATE.owners.items.length;
+  let propsFetched = 0;
+  let ownersFetched = 0;
+  let anyCallSucceeded = false;
+  try {
+    const props = await jsonpGet('hubspot-properties');
+    if (props && props.ok && Array.isArray(props.properties)) {
+      anyCallSucceeded = true;
+      const byName = {};
+      props.properties.forEach(p => { byName[p.name] = p; });
+      STATE.fields.forEach(f => {
+        const hs = byName[f.hubspot];
+        if (hs && f.type === 'select' && hs.options && hs.options.length) {
+          f.options = hs.options.map(o => ({ label: o.label, value: o.value }));
+        }
+      });
+      saveFields();
+      propsFetched = props.properties.length;
+    }
+  } catch (e) { /* non-fatal */ }
+  try {
+    const owners = await jsonpGet('hubspot-owners');
+    if (owners && owners.ok && Array.isArray(owners.owners)) {
+      anyCallSucceeded = true;
+      const items = owners.owners.map(o => ({
+        id: o.id, email: o.email || '', firstName: o.firstName || '', lastName: o.lastName || '',
+      }));
+      STATE.owners = { fetched: new Date().toISOString(), items: items };
+      saveOwners();
+      ownersFetched = items.length;
+      if (typeof refreshOwnerCacheDisplay === 'function') {
+        try { refreshOwnerCacheDisplay(); } catch (e) {}
+      }
+    }
+  } catch (e) { /* non-fatal */ }
+  // Only toast on first-run (so the rep knows it worked) or on total failure
+  // (so something looks visibly wrong). Routine background refreshes stay silent.
+  if (wasBlank && (propsFetched || ownersFetched)) {
+    toast(`Synced from HubSpot: ${propsFetched} props · ${ownersFetched} users`);
+  } else if (!anyCallSucceeded) {
+    toast('HubSpot auto-fetch returned nothing — check Apps Script deployment + scopes');
+  }
+}
+
+document.querySelectorAll('.settings-tabs .stab').forEach(s => {
+  s.addEventListener('click', () => {
+    document.querySelectorAll('.settings-tabs .stab').forEach(t => t.classList.toggle('active', t === s));
+    document.querySelectorAll('.settings-pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + s.dataset.pane));
+  });
+});
+
+$('save-settings').addEventListener('click', () => {
+  STATE.settings = {
+    token: $('cfg-token').value.trim(),
+    listId: $('cfg-list-id').value.trim(),
+    source: $('cfg-source').value.trim(),
+    campaign: $('cfg-campaign').value.trim(),
+    leadSource: $('cfg-lead-source').value.trim(),
+    leadSourceNotes: $('cfg-lead-source-notes').value.trim(),
+    repName: $('cfg-rep-name').value.trim(),
+    ownerAllowlist: $('cfg-owner-allowlist').value.trim(),
+    mode: $('cfg-mode').value,
+    proxyUrl: $('cfg-proxy').value.trim(),
+    sheetUrl: $('cfg-sheet-url').value.trim(),
+  };
+  saveSettings();
+  collectFieldsFromEditor();
+  saveFields();
+  $('settings-modal').classList.remove('open');
+  toast('Settings saved');
+});
+
+/* ---------------- Field editor ---------------- */
+const FIELD_TYPES = ['text','email','tel','url','number','textarea','select','checkbox','hubspot_user'];
+
+// Common HubSpot picklists, ready to insert as presets.
+const PRESET_FIELDS = {
+  lifecyclestage: {
+    key: 'lifecyclestage', label: 'Lifecycle stage', type: 'select', hubspot: 'lifecyclestage', required: false,
+    options: [
+      { label: 'Subscriber', value: 'subscriber' },
+      { label: 'Lead', value: 'lead' },
+      { label: 'Marketing Qualified Lead', value: 'marketingqualifiedlead' },
+      { label: 'Sales Qualified Lead', value: 'salesqualifiedlead' },
+      { label: 'Opportunity', value: 'opportunity' },
+      { label: 'Customer', value: 'customer' },
+      { label: 'Evangelist', value: 'evangelist' },
+      { label: 'Other', value: 'other' },
+    ],
+  },
+  hs_lead_status: {
+    key: 'lead_status', label: 'Lead status', type: 'select', hubspot: 'hs_lead_status', required: false,
+    options: [
+      { label: 'New', value: 'NEW' },
+      { label: 'Open', value: 'OPEN' },
+      { label: 'In Progress', value: 'IN_PROGRESS' },
+      { label: 'Open Deal', value: 'OPEN_DEAL' },
+      { label: 'Unqualified', value: 'UNQUALIFIED' },
+      { label: 'Attempted to Contact', value: 'ATTEMPTED_TO_CONTACT' },
+      { label: 'Connected', value: 'CONNECTED' },
+      { label: 'Bad Timing', value: 'BAD_TIMING' },
+    ],
+  },
+  contact_owner: {
+    key: 'owner', label: 'Contact owner', type: 'hubspot_user', hubspot: 'hubspot_owner_id', required: false,
+  },
+};
+
+function renderFieldEditor() {
+  const list = $('field-list');
+  list.innerHTML = '';
+  STATE.fields.forEach((f, i) => {
+    const row = document.createElement('div');
+    row.className = 'field-row';
+    row.dataset.idx = i;
+    const optionsHtml = (f.options || []).map((o, j) => `
+      <div class="opt-row" data-j="${j}" style="display:flex; gap:6px; margin-top:4px;">
+        <input class="opt-label" type="text" placeholder="Label shown to rep" value="${escapeHtml(o.label || '')}" style="flex:1;" />
+        <input class="opt-value" type="text" placeholder="HubSpot value" value="${escapeHtml(o.value || '')}" style="flex:1;" />
+        <button class="danger opt-remove" style="width:auto; padding:6px 10px;">×</button>
+      </div>
+    `).join('');
+    row.innerHTML = `
+      <div class="field-row-top">
+        <input class="f-label" type="text" placeholder="Label" value="${escapeHtml(f.label)}" />
+        <label class="req-toggle"><input class="f-req" type="checkbox" ${f.required ? 'checked' : ''}/> required</label>
+        <button class="danger f-remove" style="width:auto; padding:6px 10px;">Remove</button>
+      </div>
+      <div class="field-grid">
+        <div>
+          <label>Internal key</label>
+          <input class="f-key" type="text" value="${escapeHtml(f.key)}" placeholder="e.g. linkedin_url" />
+        </div>
+        <div>
+          <label>Type</label>
+          <select class="f-type">
+            ${FIELD_TYPES.map(t => `<option value="${t}" ${f.type===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <label>HubSpot property internal name</label>
+          <input class="f-hubspot" type="text" value="${escapeHtml(f.hubspot)}" placeholder="leave blank to skip sending" />
+        </div>
+      </div>
+      <div class="f-options" style="margin-top:8px; display:${f.type === 'select' ? 'block' : 'none'};">
+        <label style="margin-top:4px;">Dropdown options (label shown to rep / value sent to HubSpot)</label>
+        <div class="opt-list">${optionsHtml}</div>
+        <button class="secondary opt-add" style="margin-top:6px; padding:8px 10px; font-size:12px;">+ Add option</button>
+        <div class="muted" style="margin-top:4px;">For HubSpot picklist properties, the "value" must match an option's internal value from HubSpot → Settings → Properties.</div>
+      </div>
+      <div class="f-user-info muted" style="margin-top:8px; padding: 8px 10px; background: #11141a; border: 1px solid var(--border); border-radius: 8px; display:${f.type === 'hubspot_user' ? 'block' : 'none'};">
+        Options come from your HubSpot users. <b id="user-count-${i}">${STATE.owners.items.length}</b> cached${STATE.owners.fetched ? ' (last refreshed ' + new Date(STATE.owners.fetched).toLocaleString() + ')' : ' — not yet fetched'}. Use "Fetch HubSpot users" in Settings → Connection. The value sent is the HubSpot owner ID; map this field to <code>hubspot_owner_id</code>.
+      </div>
+    `;
+    row.querySelector('.f-remove').addEventListener('click', () => {
+      collectFieldsFromEditor();
+      STATE.fields.splice(i, 1);
+      renderFieldEditor();
+    });
+    // Toggle options / user-info blocks when type changes
+    row.querySelector('.f-type').addEventListener('change', (e) => {
+      row.querySelector('.f-options').style.display = e.target.value === 'select' ? 'block' : 'none';
+      row.querySelector('.f-user-info').style.display = e.target.value === 'hubspot_user' ? 'block' : 'none';
+    });
+    // Add option
+    row.querySelector('.opt-add').addEventListener('click', () => {
+      collectFieldsFromEditor();
+      const idx = parseInt(row.dataset.idx, 10);
+      STATE.fields[idx].options = STATE.fields[idx].options || [];
+      STATE.fields[idx].options.push({ label: '', value: '' });
+      renderFieldEditor();
+    });
+    // Remove option(s)
+    row.querySelectorAll('.opt-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        collectFieldsFromEditor();
+        const idx = parseInt(row.dataset.idx, 10);
+        const j = parseInt(btn.closest('.opt-row').dataset.j, 10);
+        STATE.fields[idx].options.splice(j, 1);
+        renderFieldEditor();
+      });
+    });
+    list.appendChild(row);
+  });
+}
+
+function collectFieldsFromEditor() {
+  const list = $('field-list');
+  if (!list.children.length) return;
+  const newFields = [];
+  Array.from(list.children).forEach(row => {
+    const label = row.querySelector('.f-label').value.trim();
+    const key = row.querySelector('.f-key').value.trim();
+    if (!label || !key) return;
+    const type = row.querySelector('.f-type').value;
+    const field = {
+      label, key, type,
+      hubspot: row.querySelector('.f-hubspot').value.trim(),
+      required: row.querySelector('.f-req').checked,
+    };
+    if (type === 'select') {
+      field.options = Array.from(row.querySelectorAll('.opt-row')).map(o => ({
+        label: o.querySelector('.opt-label').value.trim(),
+        value: o.querySelector('.opt-value').value.trim(),
+      })).filter(o => o.value || o.label);
+    }
+    newFields.push(field);
+  });
+  if (newFields.length) STATE.fields = newFields;
+}
+
+$('add-field').addEventListener('click', () => {
+  collectFieldsFromEditor();
+  STATE.fields.push({ key: 'custom_' + Date.now().toString(36), label: 'New field', type: 'text', hubspot: '', required: false });
+  renderFieldEditor();
+});
+
+$('add-preset').addEventListener('change', (e) => {
+  const preset = PRESET_FIELDS[e.target.value];
+  e.target.value = '';
+  if (!preset) return;
+  collectFieldsFromEditor();
+  // Don't add a duplicate key
+  if (STATE.fields.some(f => f.key === preset.key)) {
+    toast('Field "' + preset.key + '" already exists');
+    return;
+  }
+  STATE.fields.push(JSON.parse(JSON.stringify(preset)));
+  renderFieldEditor();
+});
+
+$('reset-fields').addEventListener('click', () => {
+  if (!confirm('Reset all field definitions to defaults?')) return;
+  STATE.fields = JSON.parse(JSON.stringify(DEFAULT_FIELDS));
+  saveFields(); // persist, otherwise a refresh re-reads the old cached fields
+  renderFieldEditor();
+  toast('Fields reset to defaults — now click "Fetch HubSpot property options"');
+});
+
+/* ---------------- Submission helpers ---------------- */
+function contactToHubspotProperties(c) {
+  const props = {};
+  STATE.fields.forEach(f => {
+    if (!f.hubspot) return; // unmapped field — skip
+    const v = c.values?.[f.key];
+    if (v != null && String(v).length) props[f.hubspot] = String(v);
+  });
+  return props;
+}
+
+function buildCsv() {
+  // CSV mirrors the sheet's columns so HubSpot import sees what reps see.
+  const fields = STATE.fields.filter(f => f.hubspot);
+  const fieldCols = fields.map(f => ({ key: f.key, header: f.hubspot, getter: (c) => c.values?.[f.key] }));
+  // System columns
+  const systemCols = [
+    { header: 'rep_name', getter: (c) => c.rep_name || '' },
+    { header: 'sources', getter: (c) => Array.isArray(c.sources) ? c.sources.join(', ') : '' },
+    { header: 'card_photo_url', getter: (c) => c.card_photo_url || '' },
+    { header: 'timestamp', getter: (c) => c.capturedAt || '' },
+  ];
+  const cols = [...fieldCols, ...systemCols];
+  const esc = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const rows = [cols.map(c => c.header).join(',')];
+  for (const contact of STATE.queue) {
+    rows.push(cols.map(c => esc(c.getter(contact))).join(','));
+  }
+  return rows.join('\n');
+}
+
+function buildCurl(token) {
+  const lines = [];
+  for (const c of STATE.queue) {
+    const props = contactToHubspotProperties(c);
+    const email = c.values?.email;
+    const auth = token || '<YOUR_TOKEN>';
+    if (email) {
+      lines.push(`# Upsert ${email} — search then POST or PATCH
+# 1) Search for existing contact by email:
+curl -s -X POST https://api.hubapi.com/crm/v3/objects/contacts/search \\
+  -H "Authorization: Bearer ${auth}" -H "Content-Type: application/json" \\
+  -d '${JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }]}], properties: ['email'], limit: 1 }).replace(/'/g, `'\\''`)}'
+
+# 2a) If found (id=ID), PATCH:
+curl -X PATCH https://api.hubapi.com/crm/v3/objects/contacts/ID \\
+  -H "Authorization: Bearer ${auth}" -H "Content-Type: application/json" \\
+  -d '${JSON.stringify({ properties: props }).replace(/'/g, `'\\''`)}'
+
+# 2b) Otherwise POST:
+curl -X POST https://api.hubapi.com/crm/v3/objects/contacts \\
+  -H "Authorization: Bearer ${auth}" -H "Content-Type: application/json" \\
+  -d '${JSON.stringify({ properties: props }).replace(/'/g, `'\\''`)}'`);
+    } else {
+      lines.push(`# No email — create as new contact:
+curl -X POST https://api.hubapi.com/crm/v3/objects/contacts \\
+  -H "Authorization: Bearer ${auth}" -H "Content-Type: application/json" \\
+  -d '${JSON.stringify({ properties: props }).replace(/'/g, `'\\''`)}'`);
+    }
+  }
+  return lines.join('\n\n');
+}
+
+async function callHubspot(path, method, body) {
+  const baseUrl = (STATE.settings.mode === 'proxy' && STATE.settings.proxyUrl)
+    ? STATE.settings.proxyUrl.replace(/\/$/, '')
+    : 'https://api.hubapi.com';
+  const res = await fetch(baseUrl + path, {
+    method,
+    headers: {
+      'Authorization': 'Bearer ' + STATE.settings.token,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json = null; try { json = JSON.parse(text); } catch {}
+  return { ok: res.ok, status: res.status, body: json || text };
+}
+
+/**
+ * Upsert by email.
+ * 1. If contact has an email, search HubSpot for an existing contact with that email.
+ * 2. If found → PATCH the existing record. If not → POST a new one.
+ * 3. If no email is on the contact, just POST a new record (no dedup possible).
+ *
+ * Returns { ok, status, action: 'created'|'updated'|'failed', id?, body }
+ */
+async function upsertContact(c) {
+  const props = contactToHubspotProperties(c);
+  if (!Object.keys(props).length) {
+    return { ok: false, status: 0, action: 'failed', body: 'No mapped fields to send. Configure HubSpot mappings in Settings → Fields.' };
+  }
+  const email = c.values?.email;
+  if (email) {
+    const search = await callHubspot('/crm/v3/objects/contacts/search', 'POST', {
+      filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }],
+      properties: ['email'],
+      limit: 1,
+    });
+    if (!search.ok) {
+      return { ok: false, status: search.status, action: 'failed', body: search.body };
+    }
+    const existing = search.body?.results?.[0];
+    if (existing && existing.id) {
+      const patch = await callHubspot(`/crm/v3/objects/contacts/${encodeURIComponent(existing.id)}`, 'PATCH', { properties: props });
+      return { ok: patch.ok, status: patch.status, action: patch.ok ? 'updated' : 'failed', id: existing.id, body: patch.body };
+    }
+  }
+  const created = await callHubspot('/crm/v3/objects/contacts', 'POST', { properties: props });
+  return { ok: created.ok, status: created.status, action: created.ok ? 'created' : 'failed', id: created.body?.id, body: created.body };
+}
+
+/* ---------------- Submission ---------------- */
+function contactToFlatRow(c) {
+  // Flat object: id + rep_name + sources + each field by HubSpot prop name + timestamp.
+  // The `id` lets the Apps Script update an existing row instead of appending, so editing
+  // a contact later doesn't create a duplicate.
+  // Raw scan text is intentionally NOT sent — it stays in the local edit modal.
+  const row = {
+    id: c.id,
+    rep_name: STATE.settings.repName || '',
+    sources: Array.isArray(c.sources) ? c.sources.join(', ') : '',
+  };
+  STATE.fields.forEach(f => {
+    const v = c.values?.[f.key];
+    if (v == null || v === '' || v === false) return;
+    const col = f.hubspot || f.key;
+    // Coerce booleans to "true"/"false" strings for HubSpot single-checkbox properties
+    row[col] = (typeof v === 'boolean') ? String(v) : String(v);
+  });
+  // Admin auto-tags (injected per the current settings, not per contact)
+  if (STATE.settings.campaign)        row.campaign_tag      = STATE.settings.campaign;
+  if (STATE.settings.leadSource)      row.lead_source       = STATE.settings.leadSource;
+  if (STATE.settings.leadSourceNotes) row.lead_source_notes = STATE.settings.leadSourceNotes;
+  if (c.card_photo_url) row.card_photo_url = String(c.card_photo_url);
+  row.timestamp = c.capturedAt || new Date().toISOString();
+  // Flags read by the Apps Script: dual-write to HubSpot + optionally attach to list.
+  row.syncHubspot = true;
+  if (STATE.settings.listId) row.hubspotListId = STATE.settings.listId;
+  return row;
+}
+
+/* ---------------- Sheet ⇄ Contact conversion + JSONP sync ---------------- */
+function sheetRowToContact(row) {
+  // Reverse of contactToFlatRow: take a row pulled from the sheet (keyed by
+  // HubSpot property names) and rebuild the contact's internal values map.
+  const values = {};
+  STATE.fields.forEach(f => {
+    const col = f.hubspot || f.key;
+    const v = row[col];
+    if (v != null && String(v).length) values[f.key] = String(v);
+  });
+  return {
+    id: row.id ? String(row.id) : ('c_' + Math.random().toString(36).slice(2, 10)),
+    values,
+    sources: row.sources ? String(row.sources).split(/\s*,\s*/).filter(Boolean) : [],
+    capturedAt: row.timestamp ? String(row.timestamp) : new Date().toISOString(),
+    rep_name: row.rep_name ? String(row.rep_name) : '',
+    card_photo_url: row.card_photo_url ? String(row.card_photo_url) : '',
+    raw: '',
+    synced: true,
+  };
+}
+
+function fetchTeamContactsJsonp() {
+  return new Promise((resolve, reject) => {
+    if (!STATE.settings.sheetUrl) return reject(new Error('No sheet URL configured.'));
+    const cb = 'cwk_' + Math.random().toString(36).slice(2, 10);
+    let done = false;
+    const cleanup = () => {
+      try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+      if (script && script.parentNode) script.parentNode.removeChild(script);
+    };
+    window[cb] = (data) => { done = true; resolve(data); cleanup(); };
+    const sep = STATE.settings.sheetUrl.includes('?') ? '&' : '?';
+    const script = document.createElement('script');
+    script.src = STATE.settings.sheetUrl + sep + 'action=list&callback=' + cb;
+    script.onerror = () => { if (!done) { cleanup(); reject(new Error('Could not reach the sheet — check your connection or sheet URL.')); } };
+    document.body.appendChild(script);
+    setTimeout(() => { if (!done) { cleanup(); reject(new Error('Sync timed out.')); } }, 15000);
+  });
+}
+
+async function syncFromSheet({ silent = false } = {}) {
+  try {
+    const data = await fetchTeamContactsJsonp();
+    if (!data || !data.ok || !Array.isArray(data.contacts)) {
+      if (!silent) toast('Sync returned no data');
+      return;
+    }
+    const remoteById = {};
+    data.contacts.forEach(r => {
+      const c = sheetRowToContact(r);
+      if (c.id) remoteById[c.id] = c;
+    });
+    const localById = {};
+    STATE.queue.forEach(c => { localById[c.id] = c; });
+
+    const merged = [];
+    // For every remote row: keep local version only if it has pending unsynced changes
+    Object.values(remoteById).forEach(remote => {
+      const local = localById[remote.id];
+      if (local && local.synced === false) merged.push(local);
+      else merged.push(remote);
+    });
+    // Keep any local-only contacts (e.g. captured offline, not yet synced) that aren't in the sheet
+    STATE.queue.forEach(c => { if (!remoteById[c.id]) merged.push(c); });
+
+    merged.sort((a, b) => (a.capturedAt > b.capturedAt ? -1 : 1));
+    STATE.queue = merged;
+    renderQueue();
+    if (!silent) toast('Synced — ' + data.contacts.length + ' team contact' + (data.contacts.length === 1 ? '' : 's'));
+  } catch (e) {
+    if (!silent) toast('Sync failed: ' + e.message);
+  }
+}
+
+async function postToSheet(payload) {
+  // Use no-cors mode to bypass Safari's strict CORS check on the Apps Script
+  // 302 redirect chain (script.google.com → script.googleusercontent.com).
+  // Tradeoff: the response is opaque so we can't verify success client-side —
+  // the rep needs to check the shared sheet to confirm rows landed.
+  await fetch(STATE.settings.sheetUrl, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload),
+  });
+  return { ok: true, status: 'sent', body: 'no-cors (response not readable; verify in sheet)' };
+}
+
+$('submit-btn').addEventListener('click', async () => {
+  if (!STATE.queue.length) return;
+  const mode = STATE.settings.mode || 'sheet';
+  const body = $('result-body');
+  body.innerHTML = '';
+  $('result-modal').classList.add('open');
+
+  // --- Shared Google Sheet mode ---
+  // With continuous sync, this button now only flushes contacts that didn't
+  // make it to the sheet (offline saves, network errors). Synced contacts stay.
+  if (mode === 'sheet') {
+    if (!STATE.settings.sheetUrl) {
+      body.innerHTML = `<p style="color:var(--err);">Set your Google Apps Script URL in Settings first.</p>`;
+      return;
+    }
+    const pending = STATE.queue.filter(c => c.synced === false);
+    if (!pending.length) {
+      body.innerHTML = '<p class="muted">Nothing pending — all contacts are already synced.</p>';
+      return;
+    }
+    body.innerHTML = `<p class="muted">Syncing ${pending.length} pending contact${pending.length === 1 ? '' : 's'}…</p>`;
+    const results = [];
+    for (const c of pending) {
+      try {
+        const r = await postToSheet(contactToFlatRow(c));
+        c.synced = true;
+        results.push({ contact: c, result: r });
+      } catch (e) {
+        results.push({ contact: c, result: { ok: false, status: 0, body: String(e) } });
+      }
+    }
+    const ok = results.filter(r => r.result.ok).length;
+    const failed = results.length - ok;
+    let html = `<p>
+      <span class="badge ok">${ok} synced</span>
+      ${failed ? `<span class="badge err">${failed} failed</span>` : ''}
+    </p>`;
+    html += `<p class="muted">Open your shared Google Sheet to confirm rows. The app can't read responses from Apps Script, so verify visually if anything looks off.</p>`;
+    if (failed) {
+      html += '<details open><summary>Errors</summary><pre>' + escapeHtml(JSON.stringify(results.filter(r => !r.result.ok), null, 2)) + '</pre></details>';
+    }
+    body.innerHTML = html;
+    if (failed === 0) {
+      playBurst();
+    }
+    renderQueue();
+    return;
+  }
+
+  if (mode === 'export') {
+    const csv = buildCsv();
+    const csvBlob = new Blob([csv], { type: 'text/csv' });
+    const csvUrl = URL.createObjectURL(csvBlob);
+    const curl = buildCurl(STATE.settings.token);
+    body.innerHTML = `
+      <p class="muted">Export-only mode — no live API call made.</p>
+      <p><a href="${csvUrl}" download="hubspot-contacts.csv" style="color:var(--accent);">Download contacts CSV</a> (use HubSpot &rarr; Contacts &rarr; Import). The CSV columns are the HubSpot internal property names; HubSpot will match them on import.</p>
+      <details open><summary>Per-contact upsert cURL (copy into terminal)</summary><pre>${escapeHtml(curl)}</pre></details>
+    `;
+    return;
+  }
+
+  if (!STATE.settings.token) {
+    body.innerHTML = `<p style="color:var(--err);">Set your HubSpot token in Settings first.</p>`;
+    return;
+  }
+
+  body.innerHTML = '<p class="muted">Submitting…</p>';
+
+  const results = [];
+  const allIds = [];
+  for (const c of STATE.queue) {
+    try {
+      const r = await upsertContact(c);
+      results.push({ contact: c, result: r });
+      if (r.id) allIds.push(r.id);
+    } catch (e) {
+      results.push({ contact: c, result: { ok: false, status: 0, action: 'failed', body: String(e) } });
+    }
+  }
+
+  let listResult = null;
+  if (STATE.settings.listId && allIds.length) {
+    try {
+      listResult = await callHubspot(
+        `/crm/v3/lists/${encodeURIComponent(STATE.settings.listId)}/memberships/add`,
+        'PUT',
+        allIds.map(id => ({ recordId: id }))
+      );
+    } catch (e) {
+      listResult = { ok: false, status: 0, body: String(e) };
+    }
+  }
+
+  const createdCount = results.filter(r => r.result.action === 'created').length;
+  const updatedCount = results.filter(r => r.result.action === 'updated').length;
+  const failedCount = results.filter(r => r.result.action === 'failed').length;
+
+  let html = `<p>
+    <span class="badge ok">${createdCount} created</span>
+    <span class="badge ok">${updatedCount} updated</span>
+    ${failedCount ? `<span class="badge err">${failedCount} failed</span>` : ''}
+  </p>`;
+  if (listResult) {
+    html += `<p>List add: ${listResult.ok ? '<span class="badge ok">ok</span>' : '<span class="badge err">failed</span>'} (status ${listResult.status})</p>`;
+  }
+  html += '<details><summary>Details</summary><pre>' + escapeHtml(JSON.stringify(results, null, 2)) + '</pre></details>';
+  body.innerHTML = html;
+
+  if (failedCount === 0) {
+    STATE.queue = [];
+    renderQueue();
+  }
+});
+
+$('close-result').addEventListener('click', () => $('result-modal').classList.remove('open'));
+
+/* ---------------- Init ---------------- */
+// Apply ?config=... URL param (rep onboarding QR) before first render
+const appliedFromUrl = applyConfigFromUrl();
+if (appliedFromUrl) {
+  setTimeout(() => toast('Configured from invite link — just enter your name in Settings'), 800);
+}
+renderQueue();
+switchMode('qr');
+
+// Pull team contacts on startup (silent — no toast if it fails on first load)
+if ((STATE.settings.mode || 'sheet') === 'sheet' && STATE.settings.sheetUrl) {
+  syncFromSheet({ silent: true });
+}
+
+// Refresh HubSpot dropdowns + owners on every app open when we have a sheetUrl.
+// This is separate from applyConfigFromUrl so that returning reps (who already
+// have settings) still get fresh owner/property data — e.g. if Haley added a
+// new rep to the allowlist between sessions.
+if (STATE.settings.sheetUrl) {
+  autoBootstrapFromHubspot();
+}
+// Re-sync when the rep returns to the tab — handles the common case of leaving
+// the app open all day and wanting to see what teammates have added.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible'
+      && (STATE.settings.mode || 'sheet') === 'sheet'
+      && STATE.settings.sheetUrl) {
+    syncFromSheet({ silent: true });
+  }
+});
+</script>
+</body>
+</html>
