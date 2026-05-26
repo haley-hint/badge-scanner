@@ -1879,12 +1879,12 @@ function applyConfigFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const raw = params.get('config');
     if (!raw) return false;
-    // Only apply the URL config if the user hasn't already set up the app on
-    // this device. This way "Add to Home Screen" -> open PWA -> bootstrap still
-    // works on iOS (where PWA storage is separate from Safari storage), but a
-    // returning rep who customized settings won't have them overwritten by a
-    // stale ?config=... in the URL on refresh.
-    if (STATE.settings.sheetUrl) return false;
+    // Apply unconditionally — the share config only carries admin-set values
+    // (sheet URL, campaign, lead source, list ID, owner allowlist, field defs).
+    // Per-rep state (rep name, contact queue, owners cache, token) is never in
+    // the config, so re-applying on every load is idempotent and lets returning
+    // reps pick up admin changes (new campaign tag, new owner list) without
+    // having to reinstall the PWA.
     const cfg = JSON.parse(base64UrlDecode(raw));
     if (cfg.sheetUrl) STATE.settings.sheetUrl = cfg.sheetUrl;
     if (cfg.mode) STATE.settings.mode = cfg.mode;
