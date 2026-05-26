@@ -5,8 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Hint Badge Scanner</title>
 
-<!-- PWA: allow reps to install to home screen -->
-<link rel="manifest" href="manifest.json" />
+<!-- PWA: allow reps to install to home screen.
+     IMPORTANT: We deliberately do NOT include <link rel="manifest"> here.
+     On iOS Safari, when a manifest with a start_url is present, "Add to Home
+     Screen" uses that start_url and DROPS the ?config=... query string from
+     the URL the user was on. That breaks our share-setup flow — reps would
+     install a PWA that opens at the bare URL with no settings.
+     Without a manifest link, iOS uses the bookmarked URL (including the
+     ?config= query) as the PWA's launch URL, so settings carry over.
+     We still inject the manifest for Android Chrome via JS below. -->
 <meta name="theme-color" content="#1d63f2" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -14,6 +21,20 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+<script>
+  // Inject the web app manifest only for non-iOS browsers. See the comment
+  // above for why iOS is excluded — it's the difference between "Add to Home
+  // Screen" preserving the share-setup config in the URL vs. losing it.
+  (function () {
+    var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (!isIOS) {
+      var link = document.createElement('link');
+      link.rel = 'manifest';
+      link.href = 'manifest.json';
+      document.head.appendChild(link);
+    }
+  })();
+</script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
@@ -841,16 +862,12 @@ async function extractFieldsFromUrlAndMerge(url) {
   if (!STATE.settings.sheetUrl) return;
   toast('Looking up the URL…');
   try {
-    const res = await fetch(STATE.settings.sheetUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'url-extract', url }),
-    });
-    // no-cors response is opaque, but if we got a real response we can parse it.
-    let data = null;
-    try { data = await res.json(); } catch (e) {}
+    // Use JSONP via GET — Apps Script POSTs go through a 302 redirect that
+    // strips CORS, leaving the response opaque to the app. JSONP routes
+    // through doGet, returns JS we can read, and bypasses the redirect dance.
+    const data = await jsonpGet('url-extract', { url });
     if (!data || !data.ok || !data.fields) {
-      toast('Could not auto-fill from URL — type the rest in.');
+      toast(data && data.error ? 'URL lookup: ' + data.error : 'Could not auto-fill from URL — type the rest in.');
       return;
     }
     // Merge the extracted fields into the open edit form. Only fill empty fields
